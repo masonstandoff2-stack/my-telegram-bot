@@ -4,7 +4,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 from telegram.ext import MessageHandler, filters
 
 # Настройки бота
-BOT_TOKEN = "8356262671:AAHie8HJ7NcqxiurF3ZKUJF1AcbZCdbbI2U"
+BOT_TOKEN = "8356262671:AAGMULNdJhuMQNJV-w8GTnf1SlqDetTYfKc"
 CHANNEL_INVITE_LINK = "https://t.me/+cF3j8j5m4jBkMGEy"
 CHANNEL_CHAT_ID = "-1003204433403"
 CHANNEL_2_USERNAME = "@HataMasona"
@@ -317,4 +317,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
