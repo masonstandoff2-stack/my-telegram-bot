@@ -4,7 +4,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 from telegram.ext import MessageHandler, filters
 
 # Настройки бота
-BOT_TOKEN = "8356262671:AAGMULNdJhuMQNJV-w8GTnf1SlqDetTYfKc"
+BOT_TOKEN = "8356262671:AAGOunTMOeVuYpXbNNz9a5yU2LSpISe23m8"
 CHANNEL_INVITE_LINK = "https://t.me/+cF3j8j5m4jBkMGEy"
 CHANNEL_CHAT_ID = "-1003204433403"
 CHANNEL_2_USERNAME = "@HataMasona"
@@ -12,10 +12,10 @@ CHANNEL_2_CHAT_ID = "-1002510814806"
 CHANNEL_3_USERNAME = "@HolidollaModz"
 CHANNEL_3_CHAT_ID = "-1002371853221"
 SUPPORT_USERNAME = "@Mano_Masu"
-APK_URL = "https://t.me/mammq123"
+APK_URL = "https://t.me/Hooolidok"
 
 # Название файла
-FILE_NAME = "Mansory Holidolla V2.0"
+FILE_NAME = "Mansory Holidolla V2.1"
 
 # Настройка логирования
 logging.basicConfig(
@@ -319,3 +319,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
