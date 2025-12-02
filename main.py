@@ -10,7 +10,7 @@ CHANNEL_CHAT_ID = "-1003204433403"
 CHANNEL_2_USERNAME = "@HataMasona"
 CHANNEL_2_CHAT_ID = "-1002510814806"
 CHANNEL_3_USERNAME = "@HolidollaModz"
-CHANNEL_3_CHAT_ID = "-1002371853221"
+CHANNEL_3_CHAT_ID = "-1003401603735"
 SUPPORT_USERNAME = "@Mano_Masu"
 APK_URL = "https://t.me/Hooolidok"
 
@@ -319,4 +319,5 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
