@@ -5,12 +5,21 @@ from telegram.ext import MessageHandler, filters
 
 # Настройки бота
 BOT_TOKEN = "8356262671:AAGOunTMOeVuYpXbNNz9a5yU2LSpISe23m8"
+
+# Основной канал
 CHANNEL_INVITE_LINK = "https://t.me/+cF3j8j5m4jBkMGEy"
 CHANNEL_CHAT_ID = "-1003204433403"
+
+# Второй канал
 CHANNEL_2_USERNAME = "@HataMasona"
 CHANNEL_2_CHAT_ID = "-1002510814806"
-CHANNEL_INVITE_LINK = "https://t.me/+qDE51n7DSHdiZmIy"
-CHANNEL_CHAT_ID = "-1002371853221"
+
+# Третий канал (изменено по вашему желанию)
+CHANNEL_3_USERNAME = "@HolidollaModz"
+CHANNEL_3_INVITE_LINK = "https://t.me/+qDE51n7DSHdiZmIy"
+CHANNEL_3_CHAT_ID = "-1002371853221"
+
+# Поддержка и файл
 SUPPORT_USERNAME = "@Mano_Masu"
 APK_URL = "https://t.me/Hooolidok"
 
@@ -136,11 +145,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode='HTML'
                 )
             else:
-                # Создаем кнопки "Подписаться" как на скриншоте
+                # Создаем кнопки "Подписаться"
                 keyboard = [
                     [InlineKeyboardButton("📢 Подписаться", url=CHANNEL_INVITE_LINK)],
                     [InlineKeyboardButton("📢 Подписаться", url=f"https://t.me/{CHANNEL_2_USERNAME[1:]}")],
-                    [InlineKeyboardButton("📢 Подписаться", url=f"https://t.me/{CHANNEL_3_USERNAME[1:]}")],
+                    [InlineKeyboardButton("📢 Подписаться", url=CHANNEL_3_INVITE_LINK)],
                     [InlineKeyboardButton("✅ Я подписался", callback_data="get_apk")],
                     [InlineKeyboardButton("🔙 Назад", callback_data="back_to_menu")]
                 ]
@@ -164,7 +173,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = [
                 [InlineKeyboardButton("📢 Подписаться", url=CHANNEL_INVITE_LINK)],
                 [InlineKeyboardButton("📢 Подписаться", url=f"https://t.me/{CHANNEL_2_USERNAME[1:]}")],
-                [InlineKeyboardButton("📢 Подписаться", url=f"https://t.me/{CHANNEL_3_USERNAME[1:]}")],
+                [InlineKeyboardButton("📢 Подписаться", url=CHANNEL_3_INVITE_LINK)],
                 [InlineKeyboardButton("🎁 Получить APK", callback_data="get_apk")],
                 [InlineKeyboardButton("🔙 Назад", callback_data="back_to_menu")]
             ]
@@ -317,8 +326,4 @@ def main():
 
 
 if __name__ == "__main__":
-
     main()
-
-
-
