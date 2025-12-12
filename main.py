@@ -790,10 +790,13 @@ class Database:
             return None
 
     def get_all_users(self):
+        """Получает всех пользователей"""
         try:
             self.cursor.execute(
                 "SELECT user_id, username, full_name, reg_date, referral_count FROM users ORDER BY reg_date DESC")
-            return self.cursor.fetchall()
+            users = self.cursor.fetchall()
+            logger.info(f"✅ Получено {len(users)} пользователей из базы")
+            return users
         except Exception as e:
             logger.error(f"Ошибка получения пользователей: {e}")
             return []
@@ -3636,12 +3639,15 @@ async def admin_broadcast_send(callback: types.CallbackQuery, state: FSMContext)
 
     start_time = datetime.now()
 
-    # ВАЖНО: Делаем копию списка пользователей для безопасной итерации
-    user_ids = [user[0] for user in users if user[0] not in ADMIN_IDS]  # Пропускаем админов
-
-    # Отправляем сообщение всем пользователям с улучшенной обработкой ошибок
-    for i, user_id in enumerate(user_ids):
+    # ОТПРАВЛЯЕМ СООБЩЕНИЯ ПООЧЕРЕДНО
+    for i, user in enumerate(users):
         try:
+            user_id = user[0]  # первый элемент - user_id
+
+            # Пропускаем админов, если они есть в списке
+            if user_id in ADMIN_IDS:
+                continue
+
             # Отправляем сообщение
             await bot.send_message(
                 chat_id=user_id,
@@ -3650,15 +3656,15 @@ async def admin_broadcast_send(callback: types.CallbackQuery, state: FSMContext)
             )
             sent_count += 1
 
-            # Обновляем статус каждые 5 сообщений (можно увеличить до 10-20 для скорости)
-            if i % 5 == 0 or i == len(user_ids) - 1:
+            # Обновляем статус каждые 10 сообщений
+            if i % 10 == 0 or i == len(users) - 1:
                 elapsed = (datetime.now() - start_time).seconds
                 speed = sent_count / max(elapsed, 1)
 
                 try:
                     await status_message.edit_text(
                         f"📢 *РАССЫЛКА В ПРОЦЕССЕ*\n\n"
-                        f"⏳ Обработано: {i + 1}/{len(user_ids)}\n"
+                        f"⏳ Обработано: {i + 1}/{len(users)}\n"
                         f"✅ Отправлено: {sent_count}\n"
                         f"❌ Ошибок: {failed_count}\n"
                         f"🚫 Заблокировали: {blocked_count}\n"
@@ -3670,12 +3676,11 @@ async def admin_broadcast_send(callback: types.CallbackQuery, state: FSMContext)
                     logger.error(f"Ошибка обновления статуса: {e}")
 
             # Задержка чтобы не превышать лимиты Telegram
-            # 30 сообщений в секунду = 0.033 секунды между сообщениями
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.1)  # 10 сообщений в секунду
 
         except Exception as e:
             error_msg = str(e).lower()
-            logger.warning(f"Ошибка отправки пользователю {user_id}: {error_msg}")
+            logger.warning(f"Ошибка отправки пользователю {user[0] if user else 'unknown'}: {error_msg}")
 
             # Проверяем частые ошибки
             if "bot was blocked" in error_msg or "user is deactivated" in error_msg:
@@ -3684,33 +3689,37 @@ async def admin_broadcast_send(callback: types.CallbackQuery, state: FSMContext)
                 blocked_count += 1
             elif "forbidden" in error_msg:
                 blocked_count += 1
+            elif "bot can't initiate conversation" in error_msg:
+                blocked_count += 1
             else:
                 failed_count += 1
-
             continue
 
     # Рассчитываем итоговую статистику
     end_time = datetime.now()
     total_time = (end_time - start_time).seconds
-    success_rate = (sent_count / len(user_ids) * 100) if len(user_ids) > 0 else 0
+    success_rate = (sent_count / len(users) * 100) if len(users) > 0 else 0
 
-    # Сохраняем историю рассылки в базу данных
-    db.add_broadcast_history(
-        admin_id=callback.from_user.id,
-        admin_name=callback.from_user.full_name,
-        message_text=broadcast_text[:500],  # Сохраняем первые 500 символов
-        total_users=len(user_ids),
-        sent_success=sent_count,
-        sent_failed=failed_count,
-        blocked_users=blocked_count,
-        status='completed'
-    )
+    # Сохраняем историю рассылки
+    try:
+        db.add_broadcast_history(
+            admin_id=callback.from_user.id,
+            admin_name=callback.from_user.full_name,
+            message_text=broadcast_text[:500],
+            total_users=len(users),
+            sent_success=sent_count,
+            sent_failed=failed_count,
+            blocked_users=blocked_count,
+            status='completed'
+        )
+    except Exception as e:
+        logger.error(f"Ошибка сохранения истории рассылки: {e}")
 
     # Формируем итоговый отчет
     result_text = f"""📢 *РАССЫЛКА ЗАВЕРШЕНА*
 
 📊 *Итоговая статистика:*
-• Всего пользователей: {len(user_ids)}
+• Всего пользователей: {len(users)}
 • Успешно отправлено: {sent_count}
 • Заблокировали бота: {blocked_count}
 • Ошибок отправки: {failed_count}
@@ -3721,9 +3730,7 @@ async def admin_broadcast_send(callback: types.CallbackQuery, state: FSMContext)
 • Конец: {end_time.strftime('%H:%M:%S')}
 • Общее время: {total_time} секунд
 
-📝 *Отправленное сообщение:*
-{broadcast_text[:300]}...
-"""
+📝 *Сообщение отправлено.*"""
 
     # Отправляем итоговый отчет
     try:
@@ -3745,33 +3752,6 @@ async def admin_broadcast_send(callback: types.CallbackQuery, state: FSMContext)
                 [InlineKeyboardButton(text="◀️ В админ меню", callback_data="to_admin_menu")]
             ])
         )
-
-    # Отправляем уведомление другим администраторам
-    admin_report = f"""📢 *РАССЫЛКА ОТПРАВЛЕНА*
-
-👤 Администратор: {callback.from_user.full_name}
-🆔 ID: {callback.from_user.id}
-👥 Получателей: {len(user_ids)}
-✅ Успешно: {sent_count}
-❌ Ошибок: {failed_count + blocked_count}
-📊 Процент успеха: {success_rate:.1f}%
-
-📝 Сообщение:
-{broadcast_text[:200]}...
-"""
-
-    # Отправляем отчет другим администраторам
-    for admin_id in ADMIN_IDS:
-        if admin_id != callback.from_user.id:
-            try:
-                await bot.send_message(
-                    chat_id=admin_id,
-                    text=admin_report,
-                    parse_mode="Markdown"
-                )
-                await asyncio.sleep(0.1)
-            except Exception as e:
-                logger.error(f"Ошибка отправки отчета админу {admin_id}: {e}")
 
     # Очищаем состояние
     await state.clear()
@@ -3895,75 +3875,51 @@ async def broadcast_report_detail(callback: types.CallbackQuery):
 
 @dp.message(Command("broadcast"))
 async def cmd_broadcast(message: types.Message):
-    """Команда для быстрой рассылки с проверкой"""
+    """Команда для быстрой рассылки"""
     if not is_admin(message.from_user.id):
         await message.answer("❌ Нет доступа!")
         return
 
-    # Проверяем, есть ли текст после команды
-    args = message.text.split(maxsplit=1)
-
-    if len(args) < 2:
+    # Получаем текст сообщения
+    if len(message.text.split()) < 2:
         await message.answer(
             "📢 *Быстрая рассылка*\n\n"
             "Использование: `/broadcast <текст сообщения>`\n\n"
             "Пример:\n"
-            "`/broadcast Всем привет! У нас новые аккаунты в продаже!`\n\n"
-            "ℹ️ *Примечание:*\n"
-            "• Можно использовать Markdown разметку\n"
-            "• Поддерживаются эмодзи и ссылки\n"
-            "• Рассылка идет только активным пользователям",
+            "`/broadcast Привет! Новые аккаунты в продаже!`",
             parse_mode="Markdown"
         )
         return
 
-    broadcast_text = args[1]
+    broadcast_text = message.text.split(maxsplit=1)[1]
 
-    # Проверяем длину сообщения
+    # Проверяем длину
     if len(broadcast_text) > 4000:
-        await message.answer(
-            "❌ *Сообщение слишком длинное!*\n\n"
-            "Максимальная длина: 4000 символов\n"
-            f"Ваше сообщение: {len(broadcast_text)} символов",
-            parse_mode="Markdown"
-        )
+        await message.answer("❌ Сообщение слишком длинное (максимум 4000 символов)")
         return
 
-    # Получаем статистику пользователей
+    # Получаем пользователей
     users = db.get_all_users()
-    user_ids = [user[0] for user in users if user[0] not in ADMIN_IDS]
-    total_users = len(user_ids)
-
-    if total_users == 0:
-        await message.answer("❌ Нет пользователей для рассылки!")
+    if not users:
+        await message.answer("❌ Нет пользователей для рассылки")
         return
 
-    # Показываем предпросмотр с подтверждением
-    preview_text = f"""📢 *ПОДТВЕРЖДЕНИЕ БЫСТРОЙ РАССЫЛКИ*
+    # Показываем предпросмотр
+    preview_text = f"""📢 *ПОДТВЕРЖДЕНИЕ РАССЫЛКИ*
 
-👥 *Получателей:* {total_users} пользователей
+👥 Получателей: {len(users)}
 
-📝 *Ваше сообщение:*
+📝 *Сообщение:*
 ━━━━━━━━━━━━━━━━━━━━
-{broadcast_text[:300]}
-{'...' if len(broadcast_text) > 300 else ''}
+{broadcast_text[:200]}
+{'...' if len(broadcast_text) > 200 else ''}
 ━━━━━━━━━━━━━━━━━━━━
 
-⚠️ *Внимание:*
-• Сообщение будет отправлено ВСЕМ пользователям
-• Это действие нельзя отменить
-• Рекомендуется сначала отправить себе для проверки
-
-✅ *Отправить рассылку?*"""
+✅ *Начать рассылку?*"""
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="✅ Да, отправить",
-                                 callback_data=f"quick_broadcast_{hash(broadcast_text) % 10000}"),
-            InlineKeyboardButton(text="❌ Нет, отмена", callback_data="to_admin_menu")
-        ],
-        [InlineKeyboardButton(text="📤 Отправить себе для проверки",
-                              callback_data=f"test_broadcast_{hash(broadcast_text) % 10000}")]
+        [InlineKeyboardButton(text="✅ Да, начать", callback_data=f"quick_broadcast")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="to_admin_menu")]
     ])
 
     await message.answer(
@@ -3971,6 +3927,27 @@ async def cmd_broadcast(message: types.Message):
         parse_mode="Markdown",
         reply_markup=keyboard
     )
+
+
+@dp.callback_query(F.data == "quick_broadcast")
+async def quick_broadcast_handler(callback: types.CallbackQuery):
+    """Обработчик быстрой рассылки"""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Нет доступа!", show_alert=True)
+        return
+
+    # Получаем текст из предыдущего сообщения
+    broadcast_text = callback.message.text.split("━━━━━━━━━━━━━━━━━━━━")[1].strip()
+
+    # Создаем состояние и запускаем рассылку
+    from aiogram.fsm.context import FSMContext
+    state = FSMContext(storage, callback.from_user.id, callback.message.chat.id)
+    await state.update_data(broadcast_text=broadcast_text)
+
+    await admin_broadcast_send(callback, state)
+
+
+
 
 
 @dp.callback_query(F.data.startswith("test_broadcast_"))
