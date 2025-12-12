@@ -12,7 +12,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # ===== КОНФИГУРАЦИЯ =====
-BOT_TOKEN = "8547560915:AAE9zJB57HFdwLeH1rzAY7dGA6XR6t7OQaA"
+BOT_TOKEN = "8547560915:AAFvrXGPcyz2tZinaKTjlrEBujSpNt3pSUQ"
 ADMIN_IDS = [8577578314, 5012040224]
 CHANNEL_ID = -1002742100828
 CHANNEL_LINK = "https://t.me/+PuuOCG7tIYc5YmM6"
