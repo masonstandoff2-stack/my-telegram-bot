@@ -12,11 +12,13 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # ===== КОНФИГУРАЦИЯ =====
-BOT_TOKEN = "8547560915:AAE4xenO97PtHHJ8b7wSAycP1Mckb2Qv0-U"
-ADMIN_IDS = [8577578314, 5012040224]
+BOT_TOKEN = "8547560915:AAFsu3iy8YNBOUFbL_C9YH8Gi4_S-p4ZQPM"
+ADMIN_IDS = [8281448580, 5012040224]
 CHANNEL_ID = -1002742100828
 CHANNEL_LINK = "https://t.me/+PuuOCG7tIYc5YmM6"
 SOFTWARE_PRICE = "200 рублей"
+STARS_PAYMENT_USERNAME = "@Kornycod"
+STARS_EXCHANGE_RATE = 2  # 1 звезда = 2 рубля
 
 MAX_VIRTS = 800000000
 MAX_PRICE = 100000
@@ -1141,19 +1143,19 @@ def get_payment_keyboard(order_type, order_id=None):
 
 
 def get_receipt_keyboard(order_id):
-    """Клавиатура для отправки чека - С ПРОВЕРКОЙ"""
+    """Клавиатура для отправки чека с оплатой звездами"""
     try:
-        logger.info(f"Создание клавиатуры для чека заказа #{order_id}")
-
         keyboard = InlineKeyboardBuilder()
-        keyboard.row(InlineKeyboardButton(text="📄 Отправить чек", callback_data=f"send_receipt_{order_id}"))
+        keyboard.row(
+            InlineKeyboardButton(text="📄 Отправить чек", callback_data=f"send_receipt_{order_id}"),
+            InlineKeyboardButton(text="⭐ Звездами", callback_data=f"pay_with_stars_{order_id}")
+        )
         keyboard.row(InlineKeyboardButton(text="🔙 Назад", callback_data=f"back_to_order_{order_id}"))
         keyboard.row(InlineKeyboardButton(text="🏠 В меню", callback_data="to_menu"))
 
         return keyboard.as_markup()
     except Exception as e:
         logger.error(f"Ошибка создания клавиатуры для чека: {e}")
-        # Возвращаем простую клавиатуру в случае ошибки
         keyboard = InlineKeyboardBuilder()
         keyboard.row(InlineKeyboardButton(text="🏠 В меню", callback_data="to_menu"))
         return keyboard.as_markup()
@@ -1315,10 +1317,15 @@ def get_photo_keyboard():
 def get_payment_details():
     return f"""
 💳 *РЕКВИЗИТЫ ДЛЯ ОПЛАТЫ:*
-📱 Номер: `{PAYMENT_DETAILS['phone']}`
-👤 Имя: {PAYMENT_DETAILS['name']}
-🏦 Банк: {PAYMENT_DETAILS['bank']}
-📞 Контакт: @Kornycod
+
+📱 *Перевод по номеру:*
+Номер: `{PAYMENT_DETAILS['phone']}`
+Имя: {PAYMENT_DETAILS['name']}
+Банк: {PAYMENT_DETAILS['bank']}
+
+⭐ *Оплата звездами:*
+Отправьте звезды на аккаунт: {STARS_PAYMENT_USERNAME}
+1 звезда = {STARS_EXCHANGE_RATE} ₽
 
 ⚠️ {PAYMENT_DETAILS['note']}
 """
@@ -1358,6 +1365,7 @@ def is_admin(user_id: int) -> bool:
 async def cmd_start(message: types.Message):
     try:
         user = message.from_user
+        logger.info(f"Команда /start от пользователя {user.id} ({user.username})")
 
         # Проверяем реферальную ссылку
         referrer_id = 0
@@ -1369,12 +1377,20 @@ async def cmd_start(message: types.Message):
                     # Проверяем, существует ли реферер
                     if referrer_id == user.id:
                         referrer_id = 0  # Нельзя быть реферером самому себе
+                    logger.info(f"Реферальная ссылка: {ref_code}, referrer_id: {referrer_id}")
                 except:
                     referrer_id = 0
 
-        db.add_user(user.id, user.username, user.full_name, referrer_id)
+        # Добавляем пользователя
+        added = db.add_user(user.id, user.username, user.full_name, referrer_id)
+        if added:
+            logger.info(f"Пользователь {user.id} добавлен в базу")
 
-        if not await check_access(message):
+        # Проверяем подписку
+        is_subscribed = await check_subscription(user.id)
+        logger.info(f"Пользователь {user.id} подписка: {is_subscribed}")
+
+        if not is_subscribed:
             await message.answer(
                 f"⚠️ *Доступ ограничен!*\n\n"
                 f"Для использования бота необходимо подписаться на наш канал:\n"
@@ -1392,6 +1408,14 @@ async def cmd_start(message: types.Message):
                 InlineKeyboardButton(text="👑 Админ панель", callback_data="to_admin_menu"),
                 InlineKeyboardButton(text="🛒 Магазин", callback_data="to_shop_menu")
             )
+
+            # Очищаем предыдущие сообщения бота в этом чате
+            try:
+                # Получаем ID последних сообщений бота
+                await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id - 1)
+            except:
+                pass
+
             await message.answer(
                 "👑 *АДМИН ДОСТУП*\n\n"
                 "Выберите режим работы:",
@@ -1399,6 +1423,12 @@ async def cmd_start(message: types.Message):
                 reply_markup=keyboard.as_markup()
             )
         else:
+            # Очищаем предыдущие сообщения бота в этом чате
+            try:
+                await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id - 1)
+            except:
+                pass
+
             await message.answer(
                 "🛒 *Shop Kornycod*\n\n"
                 "Добро пожаловать в магазин!\n"
@@ -1408,7 +1438,7 @@ async def cmd_start(message: types.Message):
             )
 
     except Exception as e:
-        logger.error(f"Ошибка в cmd_start: {e}")
+        logger.error(f"Ошибка в cmd_start: {e}", exc_info=True)
         try:
             await message.answer(
                 "🛒 *Shop Kornycod*\n\n"
@@ -1591,9 +1621,17 @@ async def referral_rules(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data == "check_subscription")
 async def check_subscription_callback(callback: types.CallbackQuery):
+    logger.info(f"Проверка подписки пользователем {callback.from_user.id}")
+
+    try:
+        # Удаляем предыдущее сообщение с кнопками подписки
+        await callback.message.delete()
+    except:
+        pass
+
     if await check_access(callback):
         if is_admin(callback.from_user.id):
-            await callback.message.edit_text(
+            await callback.message.answer(
                 "👑 *АДМИН ПАНЕЛЬ*\n\n"
                 "✅ Вы подписаны на канал!\n"
                 "Выберите действие:",
@@ -1601,7 +1639,7 @@ async def check_subscription_callback(callback: types.CallbackQuery):
                 reply_markup=get_admin_menu()
             )
         else:
-            await callback.message.edit_text(
+            await callback.message.answer(
                 "✅ *Отлично! Вы подписаны на канал!*\n\n"
                 "Теперь вы можете пользоваться всеми функциями бота.",
                 parse_mode="Markdown",
@@ -1612,6 +1650,7 @@ async def check_subscription_callback(callback: types.CallbackQuery):
             "❌ Вы не подписаны на канал! Подпишитесь и попробуйте снова.",
             show_alert=True
         )
+
     await callback.answer()
 
 
@@ -2033,11 +2072,108 @@ async def process_buy_amount(message: types.Message, state: FSMContext):
             reply_markup=get_cancel_keyboard()
         )
 
+
 @dp.callback_query(F.data.startswith("confirm_payment_"))
 async def confirm_payment(callback: types.CallbackQuery, state: FSMContext):
     if not await check_access(callback):
         await callback.answer("❌ Сначала подпишитесь на канал!", show_alert=True)
         return
+
+    order_type = callback.data.replace("confirm_payment_", "")
+    user_data = await state.get_data()
+
+    if not user_data:
+        await callback.answer("❌ Данные не найдены!", show_alert=True)
+        return
+
+    if order_type == "buy_currency":
+        order_id = db.add_order(
+            user_id=callback.from_user.id,
+            username=callback.from_user.username,
+            full_name=callback.from_user.full_name,
+            order_type="buy_currency",
+            server=user_data.get('server'),
+            amount=user_data.get('amount'),
+            price=user_data.get('price'),
+            description="Покупка виртов",
+            contacts=f"@{callback.from_user.username or 'нет юзернейма'}",
+            payment_method="Онлайн оплата"
+        )
+        order_details = f"Сервер: {user_data.get('server')}\nКоличество: {user_data.get('amount')}\nСумма: {user_data.get('price')}"
+    elif order_type == "buy_software":
+        order_id = db.add_order(
+            user_id=callback.from_user.id,
+            username=callback.from_user.username,
+            full_name=callback.from_user.full_name,
+            order_type="buy_software",
+            server="Не требуется",
+            amount="1 шт.",
+            price=SOFTWARE_PRICE,
+            description="Покупка софта для ловли",
+            contacts=f"@{callback.from_user.username or 'нет юзернейма'}",
+            payment_method="Онлайн оплата"
+        )
+        order_details = f"Товар: Софт для ловли\nСумма: {SOFTWARE_PRICE}"
+    elif order_type == "buy_account":
+        account_id = user_data.get('account_id', 0)
+        order_id = db.add_order(
+            user_id=callback.from_user.id,
+            username=callback.from_user.username,
+            full_name=callback.from_user.full_name,
+            order_type="buy_account",
+            server=user_data.get('server'),
+            amount="1 аккаунт",
+            price=user_data.get('price'),
+            description=user_data.get('description'),
+            contacts=f"@{callback.from_user.username or 'нет юзернейма'}",
+            payment_method="Онлайн оплата"
+        )
+        order_details = f"Товар: Аккаунт #{account_id}\nСервер: {user_data.get('server')}\nСумма: {user_data.get('price')}"
+
+    if order_id:
+        # Получаем сумму заказа для расчета звезд
+        price_str = user_data.get('price', '0') if order_type != "buy_software" else SOFTWARE_PRICE
+        price_clean = ''.join(filter(str.isdigit, str(price_str)))
+        price_num = int(price_clean) if price_clean else 0
+
+        # Расчет звезд по курсу 2 рубля = 1 звезда
+        stars_needed = max(1, (price_num + STARS_EXCHANGE_RATE - 1) // STARS_EXCHANGE_RATE)
+
+        await callback.message.edit_text(
+            f"✅ *Заказ оформлен!*\n\n"
+            f"🆔 Номер заказа: #{order_id}\n"
+            f"{order_details}\n\n"
+            f"💳 *Способы оплаты:*\n\n"
+            f"1️⃣ *Банковский перевод:*\n"
+            f"📱 Номер: `{PAYMENT_DETAILS['phone']}`\n"
+            f"👤 Имя: {PAYMENT_DETAILS['name']}\n"
+            f"🏦 Банк: {PAYMENT_DETAILS['bank']}\n\n"
+            f"2️⃣ *Звездами Telegram:*\n"
+            f"⭐ Отправьте звезды на: {STARS_PAYMENT_USERNAME}\n"
+            f"✨ Нужно звезд: {stars_needed} звезд\n"
+            f"💎 Курс: 1 звезда = {STARS_EXCHANGE_RATE} ₽\n"
+            f"💰 Сумма: {price_num} ₽ / {STARS_EXCHANGE_RATE} = {stars_needed} звезд\n\n"
+            f"📞 Контакт для вопросов: @Kornycod\n\n"
+            f"После оплаты нажмите '📄 Отправить чек':",
+            parse_mode="Markdown",
+            reply_markup=get_receipt_keyboard(order_id)
+        )
+
+        try:
+            order_text = f"🆕 *НОВЫЙ ЗАКАЗ #{order_id}*\n\n"
+            order_text += f"Пользователь: {callback.from_user.full_name}\n"
+            order_text += f"Юзернейм: @{callback.from_user.username or 'нет'}\n"
+            order_text += f"ID: {callback.from_user.id}\n"
+            order_text += f"Тип: {order_type}\n"
+            order_text += f"{order_details}\n\n"
+            order_text += f"Ожидайте чек об оплате"
+
+            await notify_admins(order_text)
+        except Exception as e:
+            logger.error(f"Ошибка отправки уведомления админам: {e}")
+
+    await state.clear()
+    await callback.answer()
 
     order_type = callback.data.replace("confirm_payment_", "")
     user_data = await state.get_data()
@@ -3258,6 +3394,7 @@ async def buy_account_process(callback: types.CallbackQuery, state: FSMContext):
         return
 
     try:
+        logger.info(f"Покупка аккаунта: {callback.data}")
         account_id = int(callback.data.replace("buy_acc_", ""))
 
         logger.info(f"Начало покупки аккаунта #{account_id} пользователем {callback.from_user.id}")
@@ -3265,6 +3402,7 @@ async def buy_account_process(callback: types.CallbackQuery, state: FSMContext):
         # Получаем аккаунт из магазина (accounts_shop)
         account = db.get_shop_account_by_id(account_id)
         if not account:
+            logger.error(f"Аккаунт #{account_id} не найден в магазине")
             await callback.answer("❌ Аккаунт не найден или уже продан!", show_alert=True)
             return
 
@@ -3277,18 +3415,18 @@ async def buy_account_process(callback: types.CallbackQuery, state: FSMContext):
             title = account[2] if account[2] else "Без названия"
             description = account[3] if account[3] else "Без описания"
             price = account[4]
-            # category = account[5] - не нужно для покупки
-            # level = account[6] - не нужно для покупки
-            # virt_amount = account[7] - не нужно для покупки
-            # bindings = account[8] - не нужно для покупки
-            # contacts = account[9] - не нужно для покупки
-            # photo_file_id = account[10] - не нужно для покупки
-            # created_at = account[11] - не нужно для покупки
 
-            logger.info(f"Данные аккаунта #{acc_id}: сервер={server}, цена={price}, title={title[:30]}")
+            logger.info(f"Данные аккаунта #{acc_id}: server={server}, price={price}, title={title[:30]}")
+
         except Exception as e:
             logger.error(f"Ошибка распаковки данных аккаунта: {e}")
             await callback.answer("❌ Ошибка данных аккаунта!", show_alert=True)
+            return
+
+        # Проверяем, не продан ли уже аккаунт
+        if db.is_account_sold(account_id):
+            logger.warning(f"Аккаунт #{account_id} уже продан")
+            await callback.answer("❌ Этот аккаунт уже продан!", show_alert=True)
             return
 
         # Форматируем цену
@@ -3309,36 +3447,35 @@ async def buy_account_process(callback: types.CallbackQuery, state: FSMContext):
             formatted_price = str(price)
             price_num = 0
 
-        # Сохраняем минимальные данные для заказа
-        await state.update_data({
-            'account_id': acc_id,
-            'server': server,
-            'price': price_num,
-            'formatted_price': formatted_price,
-            'description': f"Аккаунт #{acc_id} - {server} - {title[:50]}",
-            'order_type': 'buy_account_shop'  # Новый тип заказа для магазина
-        })
+        # Показываем подтверждение покупки
+        text = f"""🛒 *ПОДТВЕРЖДЕНИЕ ПОКУПКИ*
 
-        # Показываем простую форму подтверждения
+📋 *Детали аккаунта:*
+• ID: #{acc_id}
+• Сервер: {server}
+• Название: {title[:50]}{'...' if len(title) > 50 else ''}
+• Цена: {formatted_price}
+
+📝 *Описание:*
+{description[:150]}{'...' if len(description) > 150 else ''}
+
+💳 *Выберите способ оплаты:*"""
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="💳 Банковский перевод",
+                                     callback_data=f"confirm_bank_payment_{acc_id}"),
+                InlineKeyboardButton(text="⭐ Звездами",
+                                     callback_data=f"confirm_stars_payment_{acc_id}")
+            ],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data=f"select_acc_{acc_id}")],
+            [InlineKeyboardButton(text="🏠 В меню", callback_data="to_menu")]
+        ])
+
         await callback.message.edit_text(
-            f"🛒 *ПОДТВЕРЖДЕНИЕ ПОКУПКИ*\n\n"
-            f"📋 *Детали аккаунта:*\n"
-            f"• ID: #{acc_id}\n"
-            f"• Сервер: {server}\n"
-            f"• Название: {title[:50]}{'...' if len(title) > 50 else ''}\n"
-            f"• Цена: {formatted_price}\n\n"
-            f"💳 *Для оплаты:*\n"
-            f"📱 Номер: `{PAYMENT_DETAILS['phone']}`\n"
-            f"👤 Имя: {PAYMENT_DETAILS['name']}\n"
-            f"🏦 Банк: {PAYMENT_DETAILS['bank']}\n\n"
-            f"⚠️ После оплаты отправьте чек\n\n"
-            f"Нажмите '💸 Купить' для оформления заказа:",
+            text,
             parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="💸 Купить", callback_data=f"confirm_buy_shop_{acc_id}")],
-                [InlineKeyboardButton(text="🔙 Назад", callback_data=f"select_acc_{acc_id}")],
-                [InlineKeyboardButton(text="🏠 В меню", callback_data="to_menu")]
-            ])
+            reply_markup=keyboard
         )
 
     except Exception as e:
@@ -3346,6 +3483,206 @@ async def buy_account_process(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer("❌ Ошибка оформления покупки!", show_alert=True)
 
     await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("confirm_bank_payment_"))
+async def confirm_bank_payment(callback: types.CallbackQuery):
+    """Подтверждение оплаты банковским переводом"""
+    try:
+        account_id = int(callback.data.replace("confirm_bank_payment_", ""))
+
+        # Получаем аккаунт
+        account = db.get_shop_account_by_id(account_id)
+        if not account:
+            await callback.answer("❌ Аккаунт не найден!", show_alert=True)
+            return
+
+        acc_id = account[0]
+        server = account[1] if account[1] else "Без сервера"
+        title = account[2] if account[2] else "Без названия"
+        price = account[4] if len(account) > 4 else 0
+
+        # Проверяем, не продан ли уже аккаунт
+        if db.is_account_sold(account_id):
+            await callback.answer("❌ Этот аккаунт уже продан!", show_alert=True)
+            return
+
+        # Форматируем цену
+        if isinstance(price, (int, float)):
+            formatted_price = f"{int(price):,} ₽".replace(',', ' ')
+            price_num = int(price)
+        else:
+            price_clean = ''.join(filter(str.isdigit, str(price)))
+            price_num = int(price_clean) if price_clean else 0
+            formatted_price = f"{price_num:,} ₽".replace(',', ' ')
+
+        # Создаем заказ БЕЗ пометки как проданного
+        order_id = db.add_order(
+            user_id=callback.from_user.id,
+            username=callback.from_user.username,
+            full_name=callback.from_user.full_name,
+            order_type="buy_account_shop",
+            server=server,
+            amount="1 аккаунт",
+            price=formatted_price,
+            description=f"Аккаунт #{acc_id} - {server} - {title[:50]}",
+            contacts=f"@{callback.from_user.username or 'нет'}",
+            payment_method="Банковский перевод"
+        )
+
+        if order_id:
+            # Уведомляем администраторов
+            asyncio.create_task(
+                send_admin_notification_for_account_order(
+                    order_id=order_id,
+                    account_id=acc_id,
+                    user_id=callback.from_user.id,
+                    username=callback.from_user.username,
+                    full_name=callback.from_user.full_name,
+                    server=server,
+                    price=formatted_price,
+                    account_title=title
+                )
+            )
+
+            # Расчет звезд
+            stars_needed = max(1, (price_num + STARS_EXCHANGE_RATE - 1) // STARS_EXCHANGE_RATE)
+
+            await callback.message.edit_text(
+                f"✅ *ЗАКАЗ ОФОРМЛЕН!*\n\n"
+                f"🆔 Номер заказа: #{order_id}\n"
+                f"📦 Аккаунт: #{acc_id}\n"
+                f"💰 Сумма: {formatted_price}\n\n"
+                f"💳 *Реквизиты для оплаты:*\n"
+                f"📱 Номер: `{PAYMENT_DETAILS['phone']}`\n"
+                f"👤 Имя: {PAYMENT_DETAILS['name']}\n"
+                f"🏦 Банк: {PAYMENT_DETAILS['bank']}\n\n"
+                f"⭐ *Альтернативная оплата:*\n"
+                f"Можно оплатить {stars_needed} звезд на {STARS_PAYMENT_USERNAME}\n\n"
+                f"📝 *Что делать дальше:*\n"
+                f"1. Оплатите по реквизитам\n"
+                f"2. Нажмите '📄 Отправить чек'\n"
+                f"3. Владелец проверит оплату и отдаст данные аккаунта",
+                parse_mode="Markdown",
+                reply_markup=get_receipt_keyboard(order_id)
+            )
+
+        else:
+            await callback.answer("❌ Ошибка создания заказа!", show_alert=True)
+
+    except Exception as e:
+        logger.error(f"Ошибка в confirm_bank_payment: {e}", exc_info=True)
+        await callback.answer(f"❌ Ошибка: {str(e)[:50]}", show_alert=True)
+
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("confirm_stars_payment_"))
+async def confirm_stars_payment(callback: types.CallbackQuery):
+    """Подтверждение оплаты звездами"""
+    try:
+        account_id = int(callback.data.replace("confirm_stars_payment_", ""))
+
+        # Получаем аккаунт
+        account = db.get_shop_account_by_id(account_id)
+        if not account:
+            await callback.answer("❌ Аккаунт не найден!", show_alert=True)
+            return
+
+        acc_id = account[0]
+        server = account[1] if account[1] else "Без сервера"
+        title = account[2] if account[2] else "Без названия"
+        price = account[4] if len(account) > 4 else 0
+
+        # Проверяем, не продан ли уже аккаунт
+        if db.is_account_sold(account_id):
+            await callback.answer("❌ Этот аккаунт уже продан!", show_alert=True)
+            return
+
+        # Форматируем цену
+        if isinstance(price, (int, float)):
+            formatted_price = f"{int(price):,} ₽".replace(',', ' ')
+            price_num = int(price)
+        else:
+            price_clean = ''.join(filter(str.isdigit, str(price)))
+            price_num = int(price_clean) if price_clean else 0
+            formatted_price = f"{price_num:,} ₽".replace(',', ' ')
+
+        # Расчет звезд
+        stars_needed = max(1, (price_num + STARS_EXCHANGE_RATE - 1) // STARS_EXCHANGE_RATE)
+
+        # Расчет остатка
+        remainder = price_num % STARS_EXCHANGE_RATE
+        if remainder != 0:
+            remainder_text = f"\n📝 *Примечание:*\nЕсли отправите {stars_needed - 1} звезд ({price_num - remainder} ₽), нужно доплатить {remainder} ₽ другим способом."
+        else:
+            remainder_text = ""
+
+        # Создаем заказ
+        order_id = db.add_order(
+            user_id=callback.from_user.id,
+            username=callback.from_user.username,
+            full_name=callback.from_user.full_name,
+            order_type="buy_account_shop",
+            server=server,
+            amount="1 аккаунт",
+            price=formatted_price,
+            description=f"Аккаунт #{acc_id} - {server} - {title[:50]} (оплата звездами)",
+            contacts=f"@{callback.from_user.username or 'нет'}",
+            payment_method="Звезды Telegram"
+        )
+
+        if order_id:
+            # Уведомляем администраторов
+            asyncio.create_task(
+                send_admin_notification_for_account_order(
+                    order_id=order_id,
+                    account_id=acc_id,
+                    user_id=callback.from_user.id,
+                    username=callback.from_user.username,
+                    full_name=callback.from_user.full_name,
+                    server=server,
+                    price=formatted_price,
+                    account_title=title,
+                    payment_method="stars"
+                )
+            )
+
+            await callback.message.edit_text(
+                f"✅ *ЗАКАЗ ОФОРМЛЕН!*\n\n"
+                f"🆔 Номер заказа: #{order_id}\n"
+                f"📦 Аккаунт: #{acc_id}\n"
+                f"💰 Сумма: {formatted_price}\n"
+                f"✨ Нужно звезд: {stars_needed}\n"
+                f"💎 Курс: 1 звезда = {STARS_EXCHANGE_RATE} ₽{remainder_text}\n\n"
+                f"⭐ *Как оплатить:*\n"
+                f"1. Найдите в Telegram: {STARS_PAYMENT_USERNAME}\n"
+                f"2. Нажмите 'Подарить звезды' под фото профиля\n"
+                f"3. Выберите {stars_needed} звезд\n"
+                f"4. Подтвердите отправку\n\n"
+                f"📝 *Что делать дальше:*\n"
+                f"1. Оплатите {stars_needed} звезд\n"
+                f"2. Сделайте скриншот отправки\n"
+                f"3. Нажмите '📄 Отправить чек'\n"
+                f"4. Владелец проверит и отдаст данные",
+                parse_mode="Markdown",
+                reply_markup=get_receipt_keyboard(order_id)
+            )
+
+        else:
+            await callback.answer("❌ Ошибка создания заказа!", show_alert=True)
+
+    except Exception as e:
+        logger.error(f"Ошибка в confirm_stars_payment: {e}", exc_info=True)
+        await callback.answer(f"❌ Ошибка: {str(e)[:50]}", show_alert=True)
+
+    await callback.answer()
+
+
+
+
+
+
 
 
 @dp.callback_query(F.data.startswith("confirm_buy_shop_"))
@@ -4299,148 +4636,287 @@ async def admin_reject_reward(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data == "admin_manage_orders")
 async def admin_manage_orders(callback: types.CallbackQuery):
+    try:
+        logger.info(f"DEBUG: admin_manage_orders вызван пользователем {callback.from_user.id}")
+
+        if not is_admin(callback.from_user.id):
+            logger.error(f"DEBUG: Пользователь {callback.from_user.id} не админ")
+            await callback.answer("❌ Нет доступа!", show_alert=True)
+            return
+
+        logger.info("DEBUG: Проверка доступа пройдена")
+
+        # Показываем сообщение о загрузке
+        await callback.answer("⏳ Загружаю заказы...", show_alert=False)
+
+        # Простая версия - показываем сразу список
+        try:
+            # Пробуем получить заказы разными способами
+            orders = []
+
+            # Способ 1: через функцию базы данных
+            try:
+                orders = db.get_orders_by_status('new')
+                logger.info(f"DEBUG: Способ 1 - найдено {len(orders)} заказов")
+            except Exception as e1:
+                logger.error(f"DEBUG: Ошибка способа 1: {e1}")
+
+                # Способ 2: прямой SQL запрос
+                try:
+                    db.cursor.execute("SELECT * FROM orders WHERE status = 'new' ORDER BY created_at DESC LIMIT 20")
+                    orders = db.cursor.fetchall()
+                    logger.info(f"DEBUG: Способ 2 - найдено {len(orders)} заказов")
+                except Exception as e2:
+                    logger.error(f"DEBUG: Ошибка способа 2: {e2}")
+
+                    # Способ 3: проверяем структуру таблицы
+                    try:
+                        db.cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='orders'")
+                        tables = db.cursor.fetchall()
+                        logger.info(f"DEBUG: Таблицы в базе: {tables}")
+
+                        db.cursor.execute("PRAGMA table_info(orders)")
+                        columns = db.cursor.fetchall()
+                        logger.info(f"DEBUG: Колонки таблицы orders: {columns}")
+
+                        db.cursor.execute("SELECT COUNT(*) FROM orders WHERE status = 'new'")
+                        count = db.cursor.fetchone()[0]
+                        logger.info(f"DEBUG: Количество новых заказов: {count}")
+
+                        if count > 0:
+                            db.cursor.execute(
+                                "SELECT * FROM orders WHERE status = 'new' ORDER BY created_at DESC LIMIT 5")
+                            orders = db.cursor.fetchall()
+                    except Exception as e3:
+                        logger.error(f"DEBUG: Ошибка способа 3: {e3}")
+
+            logger.info(f"DEBUG: Итого заказов: {len(orders)}")
+
+            if not orders:
+                # Нет заказов
+                text = "📦 *ЗАКАЗЫ*\n\n✅ Нет новых заказов\n\nСоздайте первый заказ для теста!"
+
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="➕ Создать тестовый заказ", callback_data="admin_test_order")],
+                    [InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_manage_orders")],
+                    [InlineKeyboardButton(text="◀️ В админ меню", callback_data="to_admin_menu")]
+                ])
+
+            else:
+                # Есть заказы - показываем список
+                keyboard = InlineKeyboardBuilder()
+
+                for order in orders[:10]:  # Ограничим 10 заказами
+                    try:
+                        # Пытаемся получить данные разными способами
+                        order_id = order[0] if len(order) > 0 else "?"
+                        username = order[2] if len(order) > 2 else "нет"
+                        price = order[7] if len(order) > 7 else "0"
+                        server = order[5] if len(order) > 5 else ""
+
+                        # Безопасное форматирование
+                        try:
+                            if isinstance(price, (int, float)):
+                                price_str = f"{int(price):,} ₽".replace(',', ' ')
+                            else:
+                                price_str = str(price)
+                        except:
+                            price_str = str(price)
+
+                        button_text = f"🆕 #{order_id}"
+                        if server:
+                            button_text += f" {server[:10]}"
+                        button_text += f" - {price_str}"
+
+                        if len(button_text) > 40:
+                            button_text = button_text[:37] + "..."
+
+                        keyboard.row(
+                            InlineKeyboardButton(
+                                text=button_text,
+                                callback_data=f"admin_view_order_{order_id}"
+                            )
+                        )
+
+                    except Exception as e:
+                        logger.error(f"DEBUG: Ошибка обработки заказа {order}: {e}")
+                        continue
+
+                # Кнопки управления
+                keyboard.row(InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_manage_orders"))
+                keyboard.row(InlineKeyboardButton(text="◀️ В админ меню", callback_data="to_admin_menu"))
+
+                text = f"📦 *ЗАКАЗЫ*\n\n🆕 Новых заказов: {len(orders)}\n\nВыберите заказ для просмотра:"
+
+            # Отправляем сообщение
+            try:
+                await callback.message.edit_text(
+                    text,
+                    parse_mode="Markdown",
+                    reply_markup=keyboard.as_markup() if isinstance(keyboard, InlineKeyboardBuilder) else keyboard
+                )
+                logger.info("DEBUG: Сообщение успешно отправлено")
+
+            except Exception as edit_error:
+                logger.error(f"DEBUG: Ошибка редактирования сообщения: {edit_error}")
+                # Пробуем отправить новое сообщение
+                await callback.message.answer(
+                    text,
+                    parse_mode="Markdown",
+                    reply_markup=keyboard.as_markup() if isinstance(keyboard, InlineKeyboardBuilder) else keyboard
+                )
+                logger.info("DEBUG: Новое сообщение отправлено")
+
+        except Exception as e:
+            logger.error(f"DEBUG: Критическая ошибка: {e}", exc_info=True)
+
+            # Простое сообщение об ошибке
+            await callback.message.edit_text(
+                f"📦 *ЗАКАЗЫ*\n\n"
+                f"❌ Ошибка загрузки\n"
+                f"Попробуйте позже или проверьте логи\n\n"
+                f"Ошибка: {str(e)[:100]}",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔄 Повторить", callback_data="admin_manage_orders")],
+                    [InlineKeyboardButton(text="◀️ В админ меню", callback_data="to_admin_menu")]
+                ])
+            )
+
+    except Exception as outer_error:
+        logger.error(f"DEBUG: Внешняя ошибка: {outer_error}")
+        await callback.answer("❌ Критическая ошибка!", show_alert=True)
+
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "admin_all_orders_list")
+async def admin_all_orders_list(callback: types.CallbackQuery):
     if not is_admin(callback.from_user.id):
         await callback.answer("❌ Нет доступа!", show_alert=True)
         return
 
     try:
-        # Удаляем старое сообщение и отправляем новое
-        await callback.message.delete()
+        # Получаем все заказы сгруппированные по статусу
+        db.cursor.execute("""
+            SELECT status, COUNT(*) as count 
+            FROM orders 
+            GROUP BY status 
+            ORDER BY 
+                CASE status
+                    WHEN 'new' THEN 1
+                    WHEN 'completed' THEN 2
+                    WHEN 'rejected' THEN 3
+                    ELSE 4
+                END
+        """)
+        status_stats = db.cursor.fetchall()
 
-        # Получаем заказы
-        new_orders = db.get_orders_by_status('new')
-        all_orders = db.get_all_orders()
+        # Получаем последние заказы
+        db.cursor.execute("""
+            SELECT id, status, user_id, username, order_type, price, created_at 
+            FROM orders 
+            ORDER BY created_at DESC 
+            LIMIT 20
+        """)
+        recent_orders = db.cursor.fetchall()
 
-        if not new_orders or len(new_orders) == 0:
-            text = "📦 *ЗАКАЗЫ*\n\n✅ Нет новых заказов\n\n📊 Всего заказов: 0"
+        # Формируем текст
+        text = f"📊 *ВСЕ ЗАКАЗЫ*\n\n"
 
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_manage_orders")],
-                [InlineKeyboardButton(text="◀️ В админ меню", callback_data="to_admin_menu")]
-            ])
+        # Статистика по статусам
+        if status_stats:
+            text += "*Статистика по статусам:*\n"
+            for status, count in status_stats:
+                icon = {
+                    'new': '🆕',
+                    'completed': '✅',
+                    'rejected': '❌'
+                }.get(status, '📋')
+                text += f"{icon} {status}: {count}\n"
+            text += "\n"
 
-            await callback.message.answer(
-                text,
-                parse_mode="Markdown",
-                reply_markup=keyboard
-            )
-        else:
-            keyboard = InlineKeyboardBuilder()
+        # Последние заказы
+        if recent_orders:
+            text += "*Последние заказы:*\n"
+            for order in recent_orders:
+                order_id, status, user_id, username, order_type, price, created_at = order
 
-            # Показываем все заказы
-            for i, order in enumerate(new_orders[:15], 1):
-                try:
-                    order_id = order[0]  # id
-                    username = order[2] or "нет"  # username
-                    order_type = order[4] or "тип"  # order_type
-                    price = order[7] or "0 ₽"  # price
+                status_icon = {
+                    'new': '🆕',
+                    'completed': '✅',
+                    'rejected': '❌'
+                }.get(status, '📋')
 
-                    # Укороченный текст кнопки
-                    button_text = f"🆕 #{order_id}"
-                    if username != "нет":
-                        button_text += f" @{username[:10]}"
-                    button_text += f" - {price}"
+                # Форматируем дату
+                if isinstance(created_at, str):
+                    date_str = created_at[:10]
+                elif hasattr(created_at, 'strftime'):
+                    date_str = created_at.strftime('%d.%m')
+                else:
+                    date_str = str(created_at)[:10]
 
-                    keyboard.row(
-                        InlineKeyboardButton(
-                            text=button_text,
-                            callback_data=f"admin_view_order_{order_id}"
-                        )
-                    )
-                except Exception as e:
-                    logger.error(f"Ошибка обработки заказа: {e}")
-                    continue
+                text += f"{status_icon} #{order_id} - {price} - @{username or 'нет'} - {date_str}\n"
 
-            # Кнопки навигации
-            keyboard.row(InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_manage_orders"))
-            keyboard.row(InlineKeyboardButton(text="◀️ В админ меню", callback_data="to_admin_menu"))
-
-            await callback.message.answer(
-                f"📦 *ЗАКАЗЫ*\n\n"
-                f"🆕 Новых заказов: {len(new_orders)}\n"
-                f"📊 Всего заказов: {len(all_orders) if all_orders else 0}\n\n"
-                f"Выберите заказ для просмотра:",
-                parse_mode="Markdown",
-                reply_markup=keyboard.as_markup()
-            )
-
-    except Exception as e:
-        logger.error(f"Ошибка в admin_manage_orders: {e}", exc_info=True)
-
-        error_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔄 Повторить", callback_data="admin_manage_orders")],
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🆕 Новые заказы", callback_data="admin_manage_orders")],
             [InlineKeyboardButton(text="◀️ В админ меню", callback_data="to_admin_menu")]
         ])
 
-        await callback.message.answer(
-            f"📦 *ЗАКАЗЫ*\n\n"
-            f"❌ Ошибка при загрузке заказов\n"
-            f"Ошибка: {str(e)}\n\n"
-            f"Попробуйте еще раз:",
+        await callback.message.edit_text(
+            text,
             parse_mode="Markdown",
-            reply_markup=error_keyboard
+            reply_markup=keyboard
         )
+
+    except Exception as e:
+        logger.error(f"Ошибка в admin_all_orders_list: {e}")
+        await callback.answer("❌ Ошибка загрузки списка заказов!", show_alert=True)
 
     await callback.answer()
 
 
+# Простая функция просмотра заказа
 @dp.callback_query(F.data.startswith("admin_view_order_"))
 async def admin_view_order(callback: types.CallbackQuery):
     if not is_admin(callback.from_user.id):
         await callback.answer("❌ Нет доступа!", show_alert=True)
         return
 
-    order_id = int(callback.data.replace("admin_view_order_", ""))
-    order = db.get_order_by_id(order_id)
+    try:
+        order_id = callback.data.replace("admin_view_order_", "")
 
-    if not order:
-        await callback.answer("❌ Заказ не найден!", show_alert=True)
-        return
+        # Простой запрос
+        db.cursor.execute("SELECT * FROM orders WHERE id = ?", (order_id,))
+        order = db.cursor.fetchone()
 
-    status_icons = {
-        'new': '🆕',
-        'completed': '✅',
-        'rejected': '❌'
-    }
+        if not order:
+            await callback.answer("❌ Заказ не найден!", show_alert=True)
+            return
 
-    status_icon = status_icons.get(order[11], '❓')
+        # Простой текст
+        text = f"📋 Заказ #{order[0]}\n\n"
+        text += f"Пользователь: {order[3]}\n"
+        text += f"Тип: {order[4]}\n"
+        text += f"Цена: {order[7]}\n"
+        text += f"Статус: {order[11]}\n"
 
-    order_text = f"""{status_icon} *ЗАКАЗ #{order[0]}*
-
-👤 Пользователь: {order[3]} (@{order[2] or 'нет'})
-🆔 ID: {order[1]}
-📞 Контакты: {order[9]}
-
-📋 Тип: {order[4]}
-🖥️ Сервер: {order[5]}
-📊 Количество: {order[6]}
-💰 Сумма: {order[7]}
-
-📝 Описание: {order[8]}
-💳 Способ оплаты: {order[10]}
-📄 Чек: {'✅ Есть' if order[12] else '❌ Нет'}
-
-🕐 Создан: {order[14]}
-🔘 Статус: {order[11]}"""
-
-    keyboard_buttons = [
-        [InlineKeyboardButton(text="💬 Связаться", url=f"tg://user?id={order[1]}")],
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="admin_manage_orders")]
-    ]
-
-    if order[11] == 'new':
-        keyboard_buttons.insert(1, [
-            InlineKeyboardButton(text="✅ Выполнить", callback_data=f"admin_complete_order_{order[0]}"),
-            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"admin_reject_order_{order[0]}")
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Выполнить", callback_data=f"admin_complete_order_{order_id}"),
+                InlineKeyboardButton(text="❌ Отклонить", callback_data=f"admin_reject_order_{order_id}")
+            ],
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="admin_manage_orders")]
         ])
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+        await callback.message.edit_text(
+            text,
+            reply_markup=keyboard
+        )
 
-    await callback.message.edit_text(
-        order_text,
-        parse_mode="Markdown",
-        reply_markup=keyboard
-    )
+    except Exception as e:
+        logger.error(f"Ошибка просмотра заказа: {e}")
+        await callback.answer("❌ Ошибка загрузки заказа", show_alert=True)
+
     await callback.answer()
 
 
@@ -4450,25 +4926,18 @@ async def admin_complete_order(callback: types.CallbackQuery):
         await callback.answer("❌ Нет доступа!", show_alert=True)
         return
 
-    order_id = int(callback.data.replace("admin_complete_order_", ""))
-
-    db.update_order_status(order_id, 'completed')
-
-    # Уведомление пользователю
     try:
-        order = db.get_order_by_id(order_id)
-        if order:
-            await bot.send_message(
-                chat_id=order[1],
-                text=f"✅ *Ваш заказ #{order_id} выполнен!*\n\n"
-                     f"Благодарим за покупку! Если у вас есть вопросы, обращайтесь к администратору.",
-                parse_mode="Markdown"
-            )
-    except Exception as e:
-        logger.error(f"Ошибка отправки уведомления пользователю: {e}")
+        order_id = callback.data.replace("admin_complete_order_", "")
 
-    await callback.answer("✅ Заказ выполнен!", show_alert=True)
-    await admin_manage_orders(callback)
+        db.cursor.execute("UPDATE orders SET status = 'completed' WHERE id = ?", (order_id,))
+        db.conn.commit()
+
+        await callback.answer(f"✅ Заказ #{order_id} выполнен!", show_alert=True)
+        await admin_manage_orders(callback)
+
+    except Exception as e:
+        logger.error(f"Ошибка выполнения заказа: {e}")
+        await callback.answer("❌ Ошибка!", show_alert=True)
 
 
 @dp.callback_query(F.data.startswith("admin_reject_order_"))
@@ -4477,12 +4946,18 @@ async def admin_reject_order(callback: types.CallbackQuery):
         await callback.answer("❌ Нет доступа!", show_alert=True)
         return
 
-    order_id = int(callback.data.replace("admin_reject_order_", ""))
+    try:
+        order_id = callback.data.replace("admin_reject_order_", "")
 
-    db.update_order_status(order_id, 'rejected')
+        db.cursor.execute("UPDATE orders SET status = 'rejected' WHERE id = ?", (order_id,))
+        db.conn.commit()
 
-    await callback.answer("❌ Заказ отклонен!", show_alert=True)
-    await admin_manage_orders(callback)
+        await callback.answer(f"❌ Заказ #{order_id} отклонен!", show_alert=True)
+        await admin_manage_orders(callback)
+
+    except Exception as e:
+        logger.error(f"Ошибка отклонения заказа: {e}")
+        await callback.answer("❌ Ошибка!", show_alert=True)
 
 
 @dp.callback_query(F.data == "admin_manage_requests")
@@ -5722,10 +6197,10 @@ async def process_edit_value(message: types.Message, state: FSMContext):
 
 
 async def send_admin_notification_for_account_order(order_id, account_id, user_id, username, full_name, server, price,
-                                                    account_title):
+                                                    account_title, payment_method="bank"):
     """Отправляет уведомление администраторам о покупке аккаунта"""
     try:
-        logger.info(f"📢 Отправка уведомления о заказе #{order_id} на аккаунт #{account_id}")
+        payment_type = "⭐ ЗВЕЗДАМИ" if payment_method == "stars" else "💳 БАНКОВСКИЙ ПЕРЕВОД"
 
         notification_text = f"""🆕 *НОВЫЙ ЗАКАЗ НА АККАУНТ #{order_id}*
 
@@ -5734,6 +6209,7 @@ async def send_admin_notification_for_account_order(order_id, account_id, user_i
 • Сервер: {server}
 • Название: {account_title[:50]}{'...' if len(account_title) > 50 else ''}
 • Цена: {price}
+• Способ оплаты: {payment_type}
 
 👤 *Покупатель:*
 • Имя: {full_name}
@@ -5788,17 +6264,6 @@ async def send_admin_notification_for_account_order(order_id, account_id, user_i
 
         logger.info(f"📢 Уведомления отправлены {sent_count}/{len(ADMIN_IDS)} администраторам")
 
-        # Дополнительно логируем в консоль для отладки
-        print(f"\n{'=' * 60}")
-        print(f"📢 НОВЫЙ ЗАКАЗ НА АККАУНТ!")
-        print(f"🆔 Заказ: #{order_id}")
-        print(f"📦 Аккаунт: #{account_id}")
-        print(f"👤 Покупатель: {full_name} (@{username})")
-        print(f"💰 Цена: {price}")
-        print(f"📅 Время: {datetime.now().strftime('%H:%M:%S')}")
-        print(f"✅ Уведомления отправлены {sent_count} админам")
-        print(f"{'=' * 60}\n")
-
         return sent_count > 0
 
     except Exception as e:
@@ -5806,14 +6271,6 @@ async def send_admin_notification_for_account_order(order_id, account_id, user_i
         import traceback
         logger.error(f"Трассировка: {traceback.format_exc()}")
         return False
-
-
-
-
-
-
-
-
 
 
 @dp.callback_query(F.data == "admin_shop_add")
@@ -6397,6 +6854,78 @@ async def admin_all_users(callback: types.CallbackQuery):
     await callback.answer()
 
 
+@dp.callback_query(F.data.startswith("pay_with_stars_"))
+async def pay_with_stars(callback: types.CallbackQuery):
+    if not await check_access(callback):
+        await callback.answer("❌ Сначала подпишитесь на канал!", show_alert=True)
+        return
+
+    try:
+        order_id = int(callback.data.replace("pay_with_stars_", ""))
+        order = db.get_order_by_id(order_id)
+
+        if not order:
+            await callback.answer("❌ Заказ не найден!", show_alert=True)
+            return
+
+        price_str = order[7]  # цена заказа
+        price_clean = ''.join(filter(str.isdigit, str(price_str)))
+        price_num = int(price_clean) if price_clean else 0
+
+        # Расчет по курсу 2 рубля = 1 звезда
+        stars_needed = max(1, (price_num + STARS_EXCHANGE_RATE - 1) // STARS_EXCHANGE_RATE)
+
+        # Расчет остатка если отправят меньше
+        if price_num % STARS_EXCHANGE_RATE != 0:
+            remainder = price_num % STARS_EXCHANGE_RATE
+            stars_text = f"{stars_needed} звезд"
+            remainder_text = f"\n📝 *Примечание:*\nЕсли отправите {stars_needed - 1} звезд ({price_num - remainder} ₽), нужно доплатить {remainder} ₽ другим способом."
+        else:
+            stars_text = f"{stars_needed} звезд"
+            remainder_text = ""
+
+        await callback.message.edit_text(
+            f"⭐ *ОПЛАТА ЗВЕЗДАМИ*\n\n"
+            f"🆔 Заказ: #{order_id}\n"
+            f"💰 Сумма: {price_num} ₽\n"
+            f"✨ Нужно звезд: {stars_text}\n"
+            f"💎 Курс: 1 звезда = {STARS_EXCHANGE_RATE} ₽\n\n"
+            f"*Как оплатить:*\n"
+            f"1. Зайдите в Telegram\n"
+            f"2. Найдите аккаунт {STARS_PAYMENT_USERNAME}\n"
+            f"3. Нажмите 'Подарить звезды' под фото профиля\n"
+            f"4. Выберите количество: {stars_needed} звезд\n"
+            f"5. Подтвердите отправку\n\n"
+            f"*Важно:*\n"
+            f"• После отправки сделайте скриншот\n"
+            f"• Отправьте скриншот как чек в боте\n"
+            f"• Укажите в комментарии номер заказа #{order_id}{remainder_text}\n\n"
+            f"📞 Вопросы: @Kornycod",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📄 Отправить чек", callback_data=f"send_receipt_{order_id}")],
+                [InlineKeyboardButton(text="🔙 Назад", callback_data=f"back_to_order_{order_id}")],
+                [InlineKeyboardButton(text="🏠 В меню", callback_data="to_menu")]
+            ])
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка оплаты звездами: {e}")
+        await callback.answer("❌ Ошибка!", show_alert=True)
+
+    await callback.answer()
+
+
+
+
+
+
+
+
+
+
+
+
 @dp.callback_query(F.data == "admin_manage_accounts")
 async def admin_manage_accounts(callback: types.CallbackQuery):
     if not is_admin(callback.from_user.id):
@@ -6705,6 +7234,7 @@ async def admin_manage_accounts(callback: types.CallbackQuery):
 async def to_menu(callback: types.CallbackQuery, state: FSMContext):
     try:
         await state.clear()
+        logger.info(f"Пользователь {callback.from_user.id} перешел в меню")
 
         user = callback.from_user
 
@@ -6717,17 +7247,16 @@ async def to_menu(callback: types.CallbackQuery, state: FSMContext):
             text = "🛒 *Shop Kornycod*\n\nВыберите раздел:"
 
         try:
-            await callback.message.edit_text(
-                text,
-                parse_mode="Markdown",
-                reply_markup=keyboard
-            )
+            # Удаляем предыдущее сообщение чтобы избежать дублирования
+            await callback.message.delete()
         except:
-            await callback.message.answer(
-                text,
-                parse_mode="Markdown",
-                reply_markup=keyboard
-            )
+            pass
+
+        await callback.message.answer(
+            text,
+            parse_mode="Markdown",
+            reply_markup=keyboard
+        )
 
     except Exception as e:
         logger.error(f"Ошибка в to_menu: {e}")
@@ -6806,6 +7335,7 @@ def get_main_menu_for_admin():
 async def to_shop_menu(callback: types.CallbackQuery, state: FSMContext):
     try:
         await state.clear()
+        logger.info(f"Пользователь {callback.from_user.id} перешел в магазин")
 
         user = callback.from_user
 
@@ -6817,17 +7347,16 @@ async def to_shop_menu(callback: types.CallbackQuery, state: FSMContext):
             text = "🛒 *Shop Kornycod*\n\nДобро пожаловать в магазин!\nВыберите раздел:"
 
         try:
-            await callback.message.edit_text(
-                text,
-                parse_mode="Markdown",
-                reply_markup=keyboard
-            )
+            # Удаляем предыдущее сообщение чтобы избежать дублирования
+            await callback.message.delete()
         except:
-            await callback.message.answer(
-                text,
-                parse_mode="Markdown",
-                reply_markup=keyboard
-            )
+            pass
+
+        await callback.message.answer(
+            text,
+            parse_mode="Markdown",
+            reply_markup=keyboard
+        )
 
     except Exception as e:
         logger.error(f"Ошибка в to_shop_menu: {e}")
@@ -6849,6 +7378,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
 
 
