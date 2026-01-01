@@ -12,7 +12,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # ===== КОНФИГУРАЦИЯ =====
-BOT_TOKEN = "8547560915:AAFvrXGPcyz2tZinaKTjlrEBujSpNt3pSUQ"
+BOT_TOKEN = "8547560915:AAE4xenO97PtHHJ8b7wSAycP1Mckb2Qv0-U"
 ADMIN_IDS = [8577578314, 5012040224]
 CHANNEL_ID = -1002742100828
 CHANNEL_LINK = "https://t.me/+PuuOCG7tIYc5YmM6"
@@ -6849,5 +6849,6 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
