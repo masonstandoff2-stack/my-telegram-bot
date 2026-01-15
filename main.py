@@ -1,6 +1,9 @@
 import telebot
 from telebot import types
 from datetime import datetime
+import time as tm
+import threading
+from collections import defaultdict
 
 # токен
 bot = telebot.TeleBot("8062397299:AAG8BeqkWMCHu081iWJ9-F_9Sx4U2GD8dak")
@@ -9,7 +12,7 @@ bot = telebot.TeleBot("8062397299:AAG8BeqkWMCHu081iWJ9-F_9Sx4U2GD8dak")
 MAIN_ADMIN_ID = 8281448580
 
 # Список админов (добавляй сюда ID друзей)
-admins = [5012040224, 8281448580]
+admins = [5012040224, 8426101180]
 
 # id чата tg в котором work
 WORK_CHAT_ID = -1003503164893
@@ -19,9 +22,202 @@ user_data = {}
 collecting_info = False
 list_message_id = None
 pinned_message_id = None
+current_date = None
+stats = defaultdict(int)
+date_scheduler_running = False
 
-# Словарь городов
-city_mapping = {
+# Словарь для обработки ввода (и русские, и английские названия ведут к русскому ключу)
+city_input_map = {
+    # Русские названия (в нижнем регистре)
+    "норильск": "Норильск",
+    "череповец": "Череповец",
+    "магадан": "Магадан",
+    "подольск": "Подольск",
+    "сургут": "Сургут",
+    "ижевск": "Ижевск",
+    "томск": "Томск",
+    "тверь": "Тверь",
+    "вологда": "Вологда",
+    "таганрог": "Таганрог",
+    "новгород": "Новгород",
+    "калуга": "Калуга",
+    "владимир": "Владимир",
+    "кострома": "Кострома",
+    "чита": "Чита",
+    "астрахань": "Астрахань",
+    "братск": "Братск",
+    "тамбов": "Тамбов",
+    "якутск": "Якутск",
+    "ульяновск": "Ульяновск",
+    "липецк": "Липецк",
+    "барнаул": "Барнаул",
+    "ярославль": "Ярославль",
+    "орел": "Орел",
+    "брянск": "Брянск",
+    "псков": "Псков",
+    "смоленск": "Смоленск",
+    "ставрополь": "Ставрополь",
+    "иваново": "Иваново",
+    "тольятти": "Тольятти",
+    "тюмень": "Тюмень",
+    "кемерово": "Кемерово",
+    "киров": "Киров",
+    "оренбург": "Оренбург",
+    "архангельск": "Архангельск",
+    "курск": "Курск",
+    "мурманск": "Мурманск",
+    "пенза": "Пенза",
+    "рязань": "Рязань",
+    "тула": "Тула",
+    "пермь": "Пермь",
+    "хабаровск": "Хабаровск",
+    "чебоксары": "Чебоксары",
+    "красноярск": "Красноярск",
+    "челябинск": "Челябинск",
+    "калининград": "Калининград",
+    "владивосток": "Владивосток",
+    "владикавказ": "Владикавказ",
+    "махачкала": "Махачкала",
+    "белгород": "Белгород",
+    "воронеж": "Воронеж",
+    "волгоград": "Волгоград",
+    "иркутск": "Иркутск",
+    "омск": "Омск",
+    "саратов": "Саратов",
+    "грозный": "Грозный",
+    "новосибирск": "Новосибирск",
+    "арзамас": "Арзамас",
+    "краснодар": "Краснодар",
+    "екатеринбург": "Екатеринбург",
+    "анапа": "Анапа",
+    "ростов": "Ростов",
+    "самара": "Самара",
+    "казань": "Казань",
+    "сочи": "Сочи",
+    "уфа": "Уфа",
+    "санкт-петербург": "Спб",
+    "спб": "Спб",
+    "москва": "Москва",
+    "чоко": "Чоко",
+    "чили": "Чили",
+    "айс": "Айс",
+    "грей": "Грей",
+    "аква": "Аква",
+    "плат": "Плат",
+    "азур": "Азур",
+    "голд": "Голд",
+    "кримсон": "Кримсон",
+    "магента": "Магента",
+    "вайт": "Вайт",
+    "индиго": "Индиго",
+    "блек": "Блек",
+    "чери": "Чери",
+    "пинк": "Пинк",
+    "лайм": "Лайм",
+    "пурпл": "Пурпл",
+    "оранж": "Оранж",
+    "елоу": "Елоу",
+    "блю": "Блю",
+    "грин": "Грин",
+    "ред": "Ред",
+
+    # Английские названия (в нижнем регистре)
+    "norilsk": "Норильск",
+    "cherepovets": "Череповец",
+    "magadan": "Магадан",
+    "podolsk": "Подольск",
+    "surgut": "Сургут",
+    "izhevsk": "Ижевск",
+    "tomsk": "Томск",
+    "tver": "Тверь",
+    "vologda": "Вологда",
+    "taganrog": "Таганрог",
+    "novgorod": "Новгород",
+    "kaluga": "Калуга",
+    "vladimir": "Владимир",
+    "kostroma": "Кострома",
+    "chita": "Чита",
+    "astrakhan": "Астрахань",
+    "bratsk": "Братск",
+    "tambov": "Тамбов",
+    "yakutsk": "Якутск",
+    "ulyanovsk": "Ульяновск",
+    "lipetsk": "Липецк",
+    "barnaul": "Барнаул",
+    "yaroslavl": "Ярославль",
+    "orel": "Орел",
+    "bryansk": "Брянск",
+    "pskov": "Псков",
+    "smolensk": "Смоленск",
+    "stavropol": "Ставрополь",
+    "ivanovo": "Иваново",
+    "tolyatti": "Тольятти",
+    "tyumen": "Тюмень",
+    "kemerovo": "Кемерово",
+    "kirov": "Киров",
+    "orenburg": "Оренбург",
+    "arkhangelsk": "Архангельск",
+    "kursk": "Курск",
+    "murmansk": "Мурманск",
+    "penza": "Пенза",
+    "ryazan": "Рязань",
+    "tula": "Тула",
+    "perm": "Пермь",
+    "khabarovsk": "Хабаровск",
+    "cheboksary": "Чебоксары",
+    "krasnoyarsk": "Красноярск",
+    "chelyabinsk": "Челябинск",
+    "kaliningrad": "Калининград",
+    "vladivostok": "Владивосток",
+    "vladikavkaz": "Владикавказ",
+    "makhachkala": "Махачкала",
+    "belgorod": "Белгород",
+    "voronezh": "Воронеж",
+    "volgograd": "Волгоград",
+    "irkutsk": "Иркутск",
+    "omsk": "Омск",
+    "saratov": "Саратов",
+    "grozny": "Грозный",
+    "novosibirsk": "Новосибирск",
+    "arzamas": "Арзамас",
+    "krasnodar": "Краснодар",
+    "ekaterinburg": "Екатеринбург",
+    "anapa": "Анапа",
+    "rostov": "Ростов",
+    "samara": "Самара",
+    "kazan": "Казань",
+    "sochi": "Сочи",
+    "ufa": "Уфа",
+    "saint petersburg": "Спб",
+    "saint-petersburg": "Спб",
+    "spb": "Спб",
+    "moscow": "Москва",
+    "choco": "Чоко",
+    "chili": "Чили",
+    "ice": "Айс",
+    "gray": "Грей",
+    "aqua": "Аква",
+    "platinum": "Плат",
+    "azure": "Азур",
+    "gold": "Голд",
+    "crimson": "Кримсон",
+    "magenta": "Магента",
+    "white": "Вайт",
+    "indigo": "Индиго",
+    "black": "Блек",
+    "cherry": "Чери",
+    "pink": "Пинк",
+    "lime": "Лайм",
+    "purple": "Пурпл",
+    "orange": "Оранж",
+    "yellow": "Елоу",
+    "blue": "Блю",
+    "green": "Грин",
+    "red": "Ред"
+}
+
+# Словарь отображения для листа (как в старом коде)
+city_display = {
     "Норильск": "🎁 Норильск ",
     "Череповец": "👮‍♂Череповец ",
     "Магадан": "🐀Магадан ",
@@ -41,47 +237,47 @@ city_mapping = {
     "Братск": "👜 ʙʀᴀᴛsᴋ ",
     "Тамбов": "🥐 ᴛᴀᴍʙᴏᴡ ",
     "Якутск": "🥽 ʏᴀᴋᴜᴛsᴋ ",
-    "Ульяна": "🍭 ᴜʟʏᴀɴᴏᴠsᴋ ",
+    "Ульяновск": "🍭 ᴜʟʏᴀɴᴏᴠsᴋ ",
     "Липецк": "🎈 ʟɪᴘᴇᴛsᴋ ",
     "Барнаул": "💦 ʙᴀʀɴᴀᴜʟ ",
-    "Яро": "🏛 ʏᴀʀᴏsʟᴀᴠʟ ",
+    "Ярославль": "🏛 ʏᴀʀᴏsʟᴀᴠʟ ",
     "Орел": "🦅 ᴏʀᴇʟ ",
     "Брянск": "🧸 ʙʀʏᴀɴsᴋ ",
     "Псков": "🪭 ᴘsᴋᴏᴡ ",
-    "Смола": "🫚 sᴍᴏʟᴇɴsᴋ ",
+    "Смоленск": "🫚 sᴍᴏʟᴇɴsᴋ ",
     "Ставрополь": "🪼 sᴛᴀᴠʀᴏᴘᴏʟ ",
     "Иваново": "🪅 ɪᴠᴀɴᴏᴠᴏ ",
     "Тольятти": "🪸 ᴛᴏʟʏᴀᴛᴛɪ ",
     "Тюмень": "🐋 ᴛʏᴜᴍᴇɴ ",
     "Кемерово": "🌺 ᴋᴇᴍᴇʀᴏᴠᴏ ",
     "Киров": "🔫 ᴋɪʀᴏᴠ ",
-    "Орена": "🍖 ᴏʀᴇɴʙᴜʀɢ ",
-    "Арха": "🥋 ᴀʀᴋʜᴀɴɢᴇʟsᴋ ",
+    "Оренбург": "🍖 ᴏʀᴇɴʙᴜʀɢ ",
+    "Архангельск": "🥋 ᴀʀᴋʜᴀɴɢᴇʟsᴋ ",
     "Курск": "🃏 ᴋᴜʀsᴋ ",
-    "Мурма": "🎳 ᴍᴜʀᴍᴀɴsᴋ ",
+    "Мурманск": "🎳 ᴍᴜʀᴍᴀɴsᴋ ",
     "Пенза": "🎷 ᴘᴇɴᴢᴀ ",
     "Рязань": "🎭 ʀʏᴀᴢᴀɴ ",
     "Тула": "⛳ ᴛᴜʟᴀ ",
     "Пермь": "🏟 ᴘᴇʀᴍ ",
-    "Хаба": "🐨 ᴋʜᴀʙᴀʀᴏᴠsᴋ ",
-    "Чебы": "🪄 ᴄʜᴇʙᴏᴋsᴀʀ ",
-    "Красно": "🖇 ᴋʀᴀsɴᴏʏᴀʀsᴋ ",
-    "Челяба": "🕊 ᴄʜᴇʟʏᴀʙɪɴsᴋ ",
-    "Калина": "👒 ᴋᴀʟɪɴɪɴɢʀᴀᴅ ",
-    "Восток": "🧶 ᴠʟᴀᴅɪᴠᴏsᴛᴏᴋ ",
-    "Кавказ": "🌂 ᴠʟᴀᴅɪᴋᴀᴠᴋᴀᴢ ",
+    "Хабаровск": "🐨 ᴋʜᴀʙᴀʀᴏᴠsᴋ ",
+    "Чебоксары": "🪄 ᴄʜᴇʙᴏᴋsᴀʀ ",
+    "Красноярск": "🖇 ᴋʀᴀsɴᴏʏᴀʀsᴋ ",
+    "Челябинск": "🕊 ᴄʜᴇʟʏᴀʙɪɴsᴋ ",
+    "Калининград": "👒 ᴋᴀʟɪɴɪɴɢʀᴀᴅ ",
+    "Владивосток": "🧶 ᴠʟᴀᴅɪᴠᴏsᴛᴏᴋ ",
+    "Владикавказ": "🌂 ᴠʟᴀᴅɪᴋᴀᴠᴋᴀᴢ ",
     "Махачкала": "⛑️ ᴍᴀᴋʜᴀᴄʜᴋᴀʟᴀ ",
-    "Белга": "🎓 ʙᴇʟɢᴏʀᴏᴅ ",
+    "Белгород": "🎓 ʙᴇʟɢᴏʀᴏᴅ ",
     "Воронеж": "👑 ᴠᴏʀᴏɴᴇᴢʜ ",
     "Волгоград": "🎒 ᴠᴏʟɢᴏɢʀᴀᴅ ",
     "Иркутск": "🌪 ɪʀᴋᴜᴛsᴋ ",
     "Омск": "🪙 ᴏᴍsᴋ ",
     "Саратов": "🐉 sᴀʀᴀᴛᴏᴡ ",
     "Грозный": "🍙 ɢʀᴏᴢɴʏ ",
-    "Новосиб": "🍃 ɴᴏᴠᴏsɪʙ ",
+    "Новосибирск": "🍃 ɴᴏᴠᴏsɪʙ ",
     "Арзамас": "🪿 ᴀʀᴢᴀᴍᴀs ",
-    "Краснодар": "🪻 ᴋʀᴀsɴ ᴅᴀʀ ",
-    "Екб": "📗 ᴇᴋʙ ",
+    "Краснодаар": "🪻 ᴋʀᴀsɴ ᴅᴀʀ ",
+    "Екатеринбург": "📗 ᴇᴋʙ ",
     "Анапа": "🪺 ᴀɴᴀᴘᴀ ",
     "Ростов": "🍺 ʀᴏsᴛᴏᴠ ",
     "Самара": "🎧 sᴀᴍᴀʀᴀ ",
@@ -109,7 +305,7 @@ city_mapping = {
     "Пурпл": "💜 ᴘᴜʀᴘʟᴇ ",
     "Оранж": "🧡 ᴏʀᴀɴɢᴇ ",
     "Елоу": "💛 ʏᴇʟʟᴏᴡ ",
-    "Блу": "💙 ʙʟᴜᴇ ",
+    "Блю": "💙 ʙʟᴜᴇ ",
     "Грин": "💚 ɢʀᴇᴇɴ ",
     "Ред": "❤‍🩹 ʀᴇᴅ "
 }
@@ -121,16 +317,66 @@ def is_admin(user_id):
 
 
 def update_list_text():
-    today = datetime.now().strftime("%d.%m.%y")
-    header = f"📋 Лист by \"Чекеры Kornycod\"\n[Дата: {today}]\n\n"
+    global current_date
+
+    # Обновляем текущую дату
+    if current_date is None:
+        current_date = datetime.now().strftime("%d.%m.%y")
+
+    header = f"📋 Лист by \"Чекеры Kornycod\"\n[Дата: {current_date}]\n\n"
 
     list_items = []
-    for city_key, city_display in city_mapping.items():
+    for city_key in city_display.keys():
         status = data.get(city_key, "")
-        list_items.append(f"{city_display}{status}")
+        list_items.append(f"{city_display[city_key]}{status}")
 
     list_text = header + "\n".join(list_items)
     return list_text
+
+
+def check_and_update_date():
+    """Проверяет, нужно ли обновить дату в листе"""
+    global current_date
+
+    today = datetime.now().strftime("%d.%m.%y")
+
+    if current_date != today:
+        # Новая дата, обновляем
+        current_date = today
+        if collecting_info:
+            send_or_update_list()
+            print(f"📅 Дата обновлена на {current_date}")
+
+
+def date_scheduler():
+    """Планировщик для проверки смены даты"""
+    global date_scheduler_running
+
+    while date_scheduler_running:
+        try:
+            now = datetime.now()
+
+            # Проверяем каждую минуту, если сейчас около 00:00
+            if now.hour == 0 and now.minute == 0:
+                check_and_update_date()
+                # Ждем 2 минуты, чтобы не сработало повторно
+                tm.sleep(120)
+
+            tm.sleep(30)  # Проверяем каждые 30 секунд
+        except Exception as e:
+            print(f"Ошибка в планировщике даты: {e}")
+            tm.sleep(60)
+
+
+def start_date_scheduler():
+    """Запуск планировщика даты"""
+    global date_scheduler_running
+    if not date_scheduler_running:
+        date_scheduler_running = True
+        scheduler_thread = threading.Thread(target=date_scheduler)
+        scheduler_thread.daemon = True
+        scheduler_thread.start()
+        print("📅 Планировщик даты запущен")
 
 
 def send_or_update_list():
@@ -140,42 +386,159 @@ def send_or_update_list():
         list_text = update_list_text()
 
         if list_message_id:
+            # Пытаемся отредактировать существующее сообщение
             try:
-                # Пытаемся отредактировать существующее сообщение
                 bot.edit_message_text(
                     chat_id=WORK_CHAT_ID,
                     message_id=list_message_id,
                     text=list_text,
                     parse_mode='HTML'
                 )
+                return  # Успешно отредактировали, выходим
             except Exception as e:
-                print(f"Ошибка редактирования: {e}")
-                # Если не удалось отредактировать, отправляем новое
-                msg = bot.send_message(WORK_CHAT_ID, list_text)
-                list_message_id = msg.message_id
+                # Если не удалось отредактировать (например, сообщение удалено)
+                print(f"Не удалось отредактировать сообщение: {e}")
+                # Сбрасываем ID сообщения и пробуем отправить новое
+                list_message_id = None
+                pinned_message_id = None
 
-                # Пытаемся закрепить новое сообщение
-                if not pinned_message_id:
-                    try:
-                        bot.pin_chat_message(WORK_CHAT_ID, list_message_id, disable_notification=True)
-                        pinned_message_id = list_message_id
-                    except Exception as e:
-                        print(f"Ошибка закрепления: {e}")
-        else:
-            # Первое сообщение - отправляем и закрепляем
-            msg = bot.send_message(WORK_CHAT_ID, list_text)
-            list_message_id = msg.message_id
+        # Если сообщения нет или его не удалось отредактировать, отправляем новое
+        msg = bot.send_message(WORK_CHAT_ID, list_text, parse_mode='HTML')
+        list_message_id = msg.message_id
 
+        # Пытаемся закрепить новое сообщение
+        if not pinned_message_id:
             try:
-                # Пытаемся закрепить сообщение
                 bot.pin_chat_message(WORK_CHAT_ID, list_message_id, disable_notification=True)
                 pinned_message_id = list_message_id
-                print(f"Сообщение закреплено: {list_message_id}")
             except Exception as e:
                 print(f"Не удалось закрепить сообщение: {e}")
-                print("Убедитесь, что бот имеет права администратора в чате!")
+
     except Exception as e:
-        print(f"Общая ошибка: {e}")
+        print(f"Общая ошибка при обновлении листа: {e}")
+
+
+def delete_message_with_delay(message_id, delay=2):
+    """Удалить сообщение с задержкой"""
+
+    def delete_after_delay():
+        tm.sleep(delay)
+        try:
+            bot.delete_message(WORK_CHAT_ID, message_id)
+        except:
+            pass
+
+    thread = threading.Thread(target=delete_after_delay)
+    thread.daemon = True
+    thread.start()
+
+
+def update_stats(username, action="add"):
+    """Обновить статистику пользователя"""
+    if action == "add":
+        stats[username] += 1
+    elif action == "remove":
+        if username in stats and stats[username] > 0:
+            stats[username] -= 1
+            if stats[username] == 0:
+                del stats[username]
+
+
+@bot.message_handler(commands=['stats'])
+def show_stats(message):
+    """Показать статистику по чекинам"""
+    if not is_admin(message.from_user.id):
+        bot.reply_to(message, "❌ Только админы могут использовать эту команду!")
+        return
+
+    if not stats:
+        bot.reply_to(message, "📊 Статистика пуста. Еще никто не чекал слёты.")
+        return
+
+    # Сортируем по количеству слётов (по убыванию)
+    sorted_stats = sorted(stats.items(), key=lambda x: x[1], reverse=True)
+
+    stats_text = "📊 **СТАТИСТИКА ЧЕКЕРОВ**\n\n"
+    for i, (username, count) in enumerate(sorted_stats, 1):
+        stats_text += f"{i}. @{username} - {count} слёт{'ов' if count != 1 else ''}\n"
+
+    stats_text += f"\n📈 Всего чекинов: {sum(stats.values())}"
+    stats_text += f"\n👥 Уникальных чекиров: {len(stats)}"
+
+    bot.reply_to(message, stats_text, parse_mode='HTML')
+
+
+@bot.message_handler(commands=['mystats'])
+def show_my_stats(message):
+    """Показать свою статистику"""
+    username = message.from_user.username or message.from_user.first_name
+
+    if username in stats:
+        count = stats[username]
+        bot.reply_to(message, f"📊 Ваша статистика:\n\n@{username} - {count} слёт{'ов' if count != 1 else ''}")
+    else:
+        bot.reply_to(message, "📊 Вы еще не чекали слёты!")
+
+
+@bot.message_handler(commands=['d'])
+def delete_my_slet(message):
+    """Удалить свой слёт по серверу"""
+    user_id = message.from_user.id
+    username = message.from_user.username or message.from_user.first_name
+
+    parts = message.text.split()
+    if len(parts) >= 2:
+        city_input = parts[1].lower()
+
+        # Проверяем русское или английское название
+        city_key = city_input_map.get(city_input)
+
+        if not city_key:
+            reply = bot.reply_to(message, f"❌ Сервер '{city_input}' не найден")
+            delete_message_with_delay(reply.message_id, 2)
+            return
+
+        # Проверяем, существует ли такой слёт
+        if city_key not in data:
+            reply = bot.reply_to(message, f"❌ Слёт {city_key} не заполнен")
+            delete_message_with_delay(reply.message_id, 2)
+            return
+
+        # Проверяем, принадлежит ли слёт этому пользователю
+        if user_data.get(city_key) != user_id:
+            reply = bot.reply_to(message, f"❌ Слёт {city_key} заполнен не вами")
+            delete_message_with_delay(reply.message_id, 2)
+            return
+
+        # Удаляем слёт
+        del data[city_key]
+        del user_data[city_key]
+
+        # Обновляем статистику
+        update_stats(username, "remove")
+
+        if collecting_info:
+            send_or_update_list()
+
+        reply = bot.reply_to(message, f"✅ Ваш слёт {city_key} удален")
+        delete_message_with_delay(reply.message_id, 2)
+    else:
+        # Если сервер не указан, показываем список слётов пользователя
+        user_cities = []
+        for city, user in user_data.items():
+            if user == user_id:
+                user_cities.append(city)
+
+        if user_cities:
+            cities_list = "\n".join([f"• {city}" for city in user_cities])
+            reply = bot.reply_to(message,
+                                 f"📋 Ваши слёты:\n{cities_list}\n\n"
+                                 f"🗑️ Удалить: /d [сервер]\n"
+                                 f"Пример: /d Москва")
+            delete_message_with_delay(reply.message_id, 5)
+        else:
+            reply = bot.reply_to(message, "❌ У вас нет заполненных слётов")
+            delete_message_with_delay(reply.message_id, 2)
 
 
 @bot.message_handler(commands=['liststart'])
@@ -184,17 +547,18 @@ def start_collecting(message):
         bot.reply_to(message, "❌ Только админы могут использовать эту команду!")
         return
 
-    global collecting_info, data, user_data, list_message_id, pinned_message_id
+    global collecting_info, data, user_data, list_message_id, pinned_message_id, current_date, stats
 
     collecting_info = True
     data = {}
     user_data = {}
+    stats.clear()
     list_message_id = None
     pinned_message_id = None
+    current_date = datetime.now().strftime("%d.%m.%y")
 
     # Очистим предыдущие закрепленные сообщения
     try:
-        # Получаем информацию о чате
         chat = bot.get_chat(WORK_CHAT_ID)
         if chat.pinned_message:
             try:
@@ -207,7 +571,9 @@ def start_collecting(message):
     # Отправляем и закрепляем новый лист
     send_or_update_list()
 
-    # Проверяем, закрепилось ли
+    # Запускаем планировщик даты
+    start_date_scheduler()
+
     if pinned_message_id:
         bot.reply_to(message, "✅ Сбор начат, список закреплен")
     else:
@@ -223,15 +589,39 @@ def send_welcome(message):
                      "📋 Команды:\n"
                      "/liststart - начать сбор\n"
                      "/liststop - остановить сбор\n"
-                     "/del город - удалить статус\n"
+                     "/del город - удалить статус (админы)\n"
                      "/pd - полный сброс листа\n"
                      "/addadmin ID - добавить админа\n"
                      "/removeadmin ID - удалить админа\n"
                      "/admins - список админов\n"
-                     "/zov - простой созов для участников\n\n"
-                     "Пример: Москва Бб")
+                     "/zov - простой созов для участников\n"
+                     "/stats - статистика чекинов (админы)\n"
+                     "/mystats - моя статистика\n"
+                     "/d [сервер] - удалить свой слёт\n\n"
+                     "Примеры:\n"
+                     "Москва Бб\n"
+                     "moscow Бб\n"
+                     "Орел 0\n"
+                     "orel 0\n"
+                     "/d Москва - удалить свой слёт Москва\n"
+                     "/d moscow - тоже самое\n"
+                     "Можно писать и по-русски, и по-английски!")
     else:
-        bot.reply_to(message, "🤖 Бот для чекинга слётов")
+        bot.reply_to(message,
+                     "🤖 Бот для чекинга слётов\n\n"
+                     "📝 Как использовать:\n"
+                     "1. Пишите: Город Статус\n"
+                     "   Пример: Москва Бб\n"
+                     "2. Можно писать по-русски или по-английски\n"
+                     "3. Если ошиблись - пишите /d [сервер]\n"
+                     "4. Посмотреть статистику - /mystats\n\n"
+                     "Примеры:\n"
+                     "Москва Бб\n"
+                     "moscow Бб\n"
+                     "Орел 0\n"
+                     "orel 0\n"
+                     "/d Москва - удалить свой слёт\n"
+                     "/d moscow - тоже самое")
 
 
 @bot.message_handler(commands=['addadmin'])
@@ -299,9 +689,11 @@ def stop_collecting(message):
         bot.reply_to(message, "❌ Только админы могут использовать эту команду!")
         return
 
-    global collecting_info
+    global collecting_info, date_scheduler_running
 
     collecting_info = False
+    date_scheduler_running = False
+
     if pinned_message_id:
         try:
             bot.unpin_chat_message(WORK_CHAT_ID, pinned_message_id)
@@ -318,16 +710,27 @@ def delete_status(message):
 
     parts = message.text.split()
     if len(parts) >= 2:
-        city = parts[1].capitalize()
-        if city in data:
-            del data[city]
-            if city in user_data:
-                del user_data[city]
-            bot.reply_to(message, f"✅ {city} удален")
-            if collecting_info:
-                send_or_update_list()
+        city_input = parts[1].lower()
+
+        # Проверяем русское или английское название
+        city_key = city_input_map.get(city_input)
+        if city_key:
+            if city_key in data:
+                # Обновляем статистику при удалении
+                username = data[city_key].split(' - @')[-1] if ' - @' in data[city_key] else None
+                if username:
+                    update_stats(username, "remove")
+
+                del data[city_key]
+                if city_key in user_data:
+                    del user_data[city_key]
+                bot.reply_to(message, f"✅ {city_key} удален")
+                if collecting_info:
+                    send_or_update_list()
+            else:
+                bot.reply_to(message, f"❌ {city_key} не найден в списке")
         else:
-            bot.reply_to(message, f"❌ {city} не найден")
+            bot.reply_to(message, f"❌ {city_input} не найден")
 
 
 @bot.message_handler(commands=['pd'])
@@ -336,10 +739,11 @@ def reset_list(message):
         bot.reply_to(message, "❌ Только админы могут использовать эту команду!")
         return
 
-    global data, user_data, list_message_id, pinned_message_id
+    global data, user_data, list_message_id, pinned_message_id, stats
 
     data = {}
     user_data = {}
+    stats.clear()
 
     if pinned_message_id:
         try:
@@ -369,7 +773,6 @@ def call_all_participants(message):
         bot.reply_to(message, "❌ Только админы могут использовать эту команду!")
         return
 
-    # Простой созов с тегом всех
     zov_message = """
 📢 <b>СОЗОВ ДЛЯ ВСЕХ УЧАСТНИКОВ!</b> 📢
 
@@ -380,13 +783,19 @@ def call_all_participants(message):
 Если вы еще не заполнили свой город - сделайте это сейчас!
 
 <b>Формат:</b> Город Статус
-<b>Пример:</b> Москва Бб
+<b>Примеры:</b>
+Москва Бб
+moscow Бб
+Орел 0
+orel 0
+
+<b>Удалить свой слёт:</b> /d [сервер]
+<b>Пример:</b> /d Москва
 
 ⚡ <i>Срочно заполняйте свои города!</i> ⚡
     """
 
     try:
-        # Отправляем созов в рабочий чат
         bot.send_message(WORK_CHAT_ID, zov_message, parse_mode='HTML')
         bot.reply_to(message, "✅ Созов отправлен в чат!")
     except Exception as e:
@@ -403,72 +812,45 @@ def handle_message(message):
         return
 
     parts = text.split(' ', 1)
-    city = parts[0].capitalize()
+    city_input = parts[0].lower()
     status = parts[1]
 
-    if city not in city_mapping:
+    # Проверяем есть ли город в словаре (русский или английский)
+    if city_input not in city_input_map:
         return
 
+    city_key = city_input_map[city_input]
+
     # Проверяем не заполнен ли уже сервер другим человеком
-    if city in user_data:
-        existing_user_id = user_data[city]
+    if city_key in user_data:
+        existing_user_id = user_data[city_key]
         if existing_user_id != message.from_user.id:
-            bot.reply_to(message, f"⚠️ Сервер {city} уже заполнен!")
+            # Отправляем сообщение и удаляем его через 2 секунды
+            reply = bot.reply_to(message, f"⚠️ Сервер {city_key} уже заполнен!")
+            delete_message_with_delay(reply.message_id, 2)
             return
 
-    # Создаем кнопки подтверждения
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    btn_yes = types.InlineKeyboardButton("✅ Правильно", callback_data=f"confirm_{city}_{message.from_user.id}")
-    btn_no = types.InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{city}_{message.from_user.id}")
-    markup.add(btn_yes, btn_no)
+    # Добавляем слёт сразу (без подтверждения)
+    username = message.from_user.username or message.from_user.first_name
+    data[city_key] = f"{status} - @{username}"
+    user_data[city_key] = message.from_user.id
 
-    # Отправляем сообщение с подтверждением
-    bot.send_message(
-        WORK_CHAT_ID,
-        f"Вы точно хотите добавить слёт?\n\nСервер: {city} {status}",
-        reply_markup=markup,
-        reply_to_message_id=message.message_id
-    )
+    # Обновляем статистику
+    update_stats(username, "add")
 
+    # Обновляем лист
+    send_or_update_list()
 
-@bot.callback_query_handler(func=lambda call: True)
-def handle_callback(call):
-    try:
-        parts = call.data.split('_')
-        action, city, user_id = parts[0], parts[1], int(parts[2])
-
-        if call.from_user.id != user_id:
-            bot.answer_callback_query(call.id, "Не ваш слёт")
-            return
-
-        try:
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-        except:
-            pass
-
-        if action == "confirm":
-            if city in user_data and user_data[city] != user_id:
-                bot.answer_callback_query(call.id, "Сервер уже заполнен")
-                return
-
-            msg_text = call.message.text
-            status_text = msg_text.split(f"Сервер: {city} ")[1]
-
-            username = call.from_user.username or call.from_user.first_name
-            data[city] = f"{status_text} - @{username}"
-            user_data[city] = user_id
-
-            send_or_update_list()
-            bot.answer_callback_query(call.id, "✅ Подтверждено")
-
-        elif action == "reject":
-            bot.answer_callback_query(call.id, "❌ Отклонено")
-
-    except:
-        bot.answer_callback_query(call.id, "Ошибка")
+    # Отправляем подтверждение и удаляем через 2 секунды
+    reply = bot.reply_to(message, f"✅ Слёт {city_key} добавлен!\n🗑️ Удалить: /d {city_input}")
+    delete_message_with_delay(reply.message_id, 3)
 
 
 print("🤖 Бот запущен!")
 print(f"📋 Главный админ: {MAIN_ADMIN_ID}")
 print(f"👥 Всего админов: {len(admins)}")
+print("🌐 Можно писать города и по-русски, и по-английски!")
+print("🗑️ Команда /d [сервер] удаляет конкретный слёт")
+print("📊 Статистика доступна по команде /stats (админы) и /mystats")
+print("📅 Дата автоматически обновляется в 00:00")
 bot.infinity_polling()
