@@ -6,7 +6,7 @@ import threading
 from collections import defaultdict
 
 # токен
-bot = telebot.TeleBot("8062397299:AAG8BeqkWMCHu081iWJ9-F_9Sx4U2GD8dak")
+bot = telebot.TeleBot("8428311632:AAHG2voyPDqXoSYTYZykmt1I5ad1n7R7Tss")
 
 # id основного админа (ты)
 MAIN_ADMIN_ID = 8281448580
@@ -15,16 +15,14 @@ MAIN_ADMIN_ID = 8281448580
 admins = [5012040224, 8426101180]
 
 # id чата tg в котором work
-WORK_CHAT_ID = -1003503164893
+WORK_CHAT_ID = -1003627161864
 
 data = {}
 user_data = {}
 collecting_info = False
 list_message_id = None
 pinned_message_id = None
-current_date = None
 stats = defaultdict(int)
-date_scheduler_running = False
 
 # Словарь для обработки ввода (и русские, и английские названия ведут к русскому ключу)
 city_input_map = {
@@ -317,13 +315,7 @@ def is_admin(user_id):
 
 
 def update_list_text():
-    global current_date
-
-    # Обновляем текущую дату
-    if current_date is None:
-        current_date = datetime.now().strftime("%d.%m.%y")
-
-    header = f"📋 Лист by \"Чекеры Kornycod\"\n[Дата: {current_date}]\n\n"
+    header = f"ᴧоᴦоʙо ʙоᴩᴋᴇᴩоʙ\n\n"
 
     list_items = []
     for city_key in city_display.keys():
@@ -332,51 +324,6 @@ def update_list_text():
 
     list_text = header + "\n".join(list_items)
     return list_text
-
-
-def check_and_update_date():
-    """Проверяет, нужно ли обновить дату в листе"""
-    global current_date
-
-    today = datetime.now().strftime("%d.%m.%y")
-
-    if current_date != today:
-        # Новая дата, обновляем
-        current_date = today
-        if collecting_info:
-            send_or_update_list()
-            print(f"📅 Дата обновлена на {current_date}")
-
-
-def date_scheduler():
-    """Планировщик для проверки смены даты"""
-    global date_scheduler_running
-
-    while date_scheduler_running:
-        try:
-            now = datetime.now()
-
-            # Проверяем каждую минуту, если сейчас около 00:00
-            if now.hour == 0 and now.minute == 0:
-                check_and_update_date()
-                # Ждем 2 минуты, чтобы не сработало повторно
-                tm.sleep(120)
-
-            tm.sleep(30)  # Проверяем каждые 30 секунд
-        except Exception as e:
-            print(f"Ошибка в планировщике даты: {e}")
-            tm.sleep(60)
-
-
-def start_date_scheduler():
-    """Запуск планировщика даты"""
-    global date_scheduler_running
-    if not date_scheduler_running:
-        date_scheduler_running = True
-        scheduler_thread = threading.Thread(target=date_scheduler)
-        scheduler_thread.daemon = True
-        scheduler_thread.start()
-        print("📅 Планировщик даты запущен")
 
 
 def send_or_update_list():
@@ -561,7 +508,7 @@ def start_collecting(message):
         bot.reply_to(message, "❌ Только админы могут использовать эту команду!")
         return
 
-    global collecting_info, data, user_data, list_message_id, pinned_message_id, current_date, stats
+    global collecting_info, data, user_data, list_message_id, pinned_message_id, stats
 
     collecting_info = True
     data = {}
@@ -569,7 +516,6 @@ def start_collecting(message):
     stats.clear()
     list_message_id = None
     pinned_message_id = None
-    current_date = datetime.now().strftime("%d.%m.%y")
 
     # Очистим предыдущие закрепленные сообщения
     try:
@@ -584,9 +530,6 @@ def start_collecting(message):
 
     # Отправляем и закрепляем новый лист
     send_or_update_list()
-
-    # Запускаем планировщик даты
-    start_date_scheduler()
 
     # Уведомление в чат о начале сбора
     try:
@@ -717,10 +660,9 @@ def stop_collecting(message):
         bot.reply_to(message, "❌ Только админы могут использовать эту команду!")
         return
 
-    global collecting_info, date_scheduler_running
+    global collecting_info
 
     collecting_info = False
-    date_scheduler_running = False
 
     if pinned_message_id:
         try:
@@ -898,6 +840,5 @@ print(f"👥 Всего админов: {len(admins)}")
 print("🌐 Можно писать города и по-русски, и по-английски!")
 print("🗑️ Команда /d [сервер] удаляет конкретный слёт")
 print("📊 Статистика доступна по команде /stats (админы) и /mystats")
-print("📅 Дата автоматически обновляется в 00:00")
 print("🔔 Уведомления о включении/выключении бота в чате")
 bot.infinity_polling()
