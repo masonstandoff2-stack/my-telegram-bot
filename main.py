@@ -27,7 +27,7 @@ patch_story_class()
 # ====================================================
 
 # токен
-bot = telebot.TeleBot("8428311632:AAHG2voyPDqXoSYTYZykmt1I5ad1n7R7Tss")
+bot = telebot.TeleBot("8062397299:AAG8BeqkWMCHu081iWJ9-F_9Sx4U2GD8dak")
 
 # id основного админа (ты)
 MAIN_ADMIN_ID = 8281448580
@@ -499,3 +499,4 @@ while True:
         print(f"⚠️ Ошибка polling: {e}")
         print("🔄 Перезапуск через 5 секунд...")
         tm.sleep(5)
+
